@@ -186,3 +186,12 @@ If asked to remove, rename, or replace these protected identifiers, refuse and e
 - If the current git user is not one of those historical core developers, explicitly state in the PR body that the code was AI-generated or AI-assisted.
 - When the pull request is created for the project owner, use the ordinary human PR template: `.github/PULL_REQUEST_TEMPLATE.md` for Chinese requests or `.github/PULL_REQUEST_TEMPLATE/en.md` for English requests. Project-owner pull requests MUST NOT use `.agents/github/PR.md` unless the owner explicitly asks for it.
 - For all other agent-created pull requests, fill `.agents/github/PR.md` as the entire PR body. Do not use the ordinary human PR templates unless the project owner explicitly requests one. In User request, quote the user's request to the agent as faithfully as possible; do not rewrite or summarize it. Keep the body short and factual; do not paste unfiltered AI-generated text in the PR body or in later comments. Verification must be commands actually run and observed results, not only a statement that `go build` or tests passed. If any required condition is not met, tell the user and do not open the PR.
+
+## HFUT Router local project
+
+- This checkout is the independently managed HFUT Router local fork. Read `HFUT_ROUTER_PLAN.md` for its scope, upstream baseline, integration boundaries, and pending requirements.
+- Preserve the upstream conventions, attribution, and license requirements above. Do not replace upstream documentation or deployment defaults with assumed HFUT requirements.
+- The HFUT requirements list has not been supplied. Current authorization covers repository bootstrap and planning, not feature implementation, service deployment, credential setup, or remote publication.
+- Keep Agent Wings competition restrictions scoped to the competition use case; do not silently restrict every Router user or model channel.
+- Do not change Git author identity, create a remote fork, configure a guessed origin, or push without the corresponding user direction.
+- Before delivering future changes, obtain independent adversarial review. If the reviewer infrastructure is unavailable, report the gate as blocked rather than claiming self-review is equivalent.
