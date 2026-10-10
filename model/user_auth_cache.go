@@ -42,7 +42,7 @@ func userAuthFenceTTLSeconds() int {
 	return cacheTTL + extra
 }
 
-func writeUserCache(user *UserBase, includeQuota bool) error {
+func writeUserCache(user *UserBase, includeQuota bool, generation ...int64) error {
 	if user == nil || user.Id <= 0 || !common.RedisEnabled {
 		return nil
 	}
@@ -53,6 +53,18 @@ func writeUserCache(user *UserBase, includeQuota bool) error {
 	includeQuotaArg := "0"
 	if includeQuota {
 		includeQuotaArg = "1"
+	}
+	expected := int64(0)
+	if includeQuota {
+		if len(generation) > 0 {
+			expected = generation[0]
+		} else {
+			var err error
+			expected, err = quotaCacheGeneration(getUserCacheKey(user.Id))
+			if err != nil {
+				return err
+			}
+		}
 	}
 	ttl := userCacheTTLSeconds()
 	const script = `
@@ -69,6 +81,10 @@ end
 if pending > 0 and pending <= incoming then
   redis.call('DEL', KEYS[2])
 end
+if ARGV[10] == '1' and (tonumber(redis.call('HGET', KEYS[4], 'pending') or '0') > 0
+  or tonumber(redis.call('HGET', KEYS[4], 'generation') or '0') ~= tonumber(ARGV[13])) then
+  return 1
+end
 if ARGV[10] == '0' and redis.call('EXISTS', KEYS[1]) == 0 then
   return 1
 end
@@ -82,9 +98,9 @@ end
 redis.call('EXPIRE', KEYS[1], ARGV[12])
 return 1`
 	result, err := common.RDB.Eval(context.Background(), script,
-		[]string{getUserCacheKey(user.Id), getUserAuthFenceKey(user.Id), getUserAuthVersionKey(user.Id)},
+		[]string{getUserCacheKey(user.Id), getUserAuthFenceKey(user.Id), getUserAuthVersionKey(user.Id), getUserCacheKey(user.Id) + ":quota-fence"},
 		user.AuthVersion, user.Id, user.Group, user.Email, user.Status, user.Role,
-		user.Username, user.Setting, user.CacheSchema, includeQuotaArg, user.Quota, ttl,
+		user.Username, user.Setting, user.CacheSchema, includeQuotaArg, user.Quota, ttl, expected,
 	).Int()
 	if err != nil {
 		return err

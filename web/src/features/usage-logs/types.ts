@@ -239,6 +239,17 @@ export interface LogOtherData {
   is_system_prompt_overwritten?: boolean
   po?: string[]
   billing_source?: string
+  funding_pricing?: {
+    model_name: string
+    source: string
+    multiplier: number
+    list_quota: number
+    due_quota: number
+    charged_quota: number
+    funding_status: 'reserved' | 'settled' | 'partial' | 'failed'
+    token_status: 'reserved' | 'settled' | 'failed'
+    basis: 'actual' | 'estimated' | 'reservation'
+  }
   group?: string
   stream_status?: {
     status?: string

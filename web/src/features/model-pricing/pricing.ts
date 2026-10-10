@@ -26,6 +26,7 @@ import {
   buildModelSnapshots,
   type ModelPricingSnapshot,
 } from '@/features/system-settings/models/model-pricing-snapshots'
+import { tryJsonParse } from '@/features/system-settings/utils/json-parser'
 
 import type { ModelPricingEntry } from './api'
 
@@ -41,6 +42,8 @@ export const PRICING_KEYS = [
   'billing_setting.billing_mode',
   'billing_setting.billing_expr',
   'billing_setting.plugin_billing_expr',
+  'billing_setting.subscription_multiplier',
+  'billing_setting.wallet_multiplier',
 ] as const
 export type PricingKey = (typeof PRICING_KEYS)[number]
 export type PricingValues = Partial<
@@ -138,6 +141,12 @@ export function pricingOptions(
       if (key === 'billing_setting.plugin_billing_expr') {
         value ??= values.PluginBillingExpr
       }
+      if (key === 'billing_setting.subscription_multiplier') {
+        value ??= values.SubscriptionMultiplier
+      }
+      if (key === 'billing_setting.wallet_multiplier') {
+        value ??= values.WalletMultiplier
+      }
       return [key, typeof value === 'string' ? value : '{}']
     })
   ) as PricingOptions
@@ -156,6 +165,8 @@ export function pricingRows(options: PricingOptions): ModelPricingSnapshot[] {
     billingMode: options['billing_setting.billing_mode'],
     billingExpr: options['billing_setting.billing_expr'],
     pluginBillingExpr: options['billing_setting.plugin_billing_expr'],
+    subscriptionMultiplier: options['billing_setting.subscription_multiplier'],
+    walletMultiplier: options['billing_setting.wallet_multiplier'],
   })
 }
 
@@ -195,6 +206,14 @@ export function pricingRow(
     name,
     billingMode,
     pluginBillingExpr: values['billing_setting.plugin_billing_expr'],
+    subscriptionMultiplier:
+      values['billing_setting.subscription_multiplier'] === undefined
+        ? ''
+        : String(values['billing_setting.subscription_multiplier']),
+    walletMultiplier:
+      values['billing_setting.wallet_multiplier'] === undefined
+        ? ''
+        : String(values['billing_setting.wallet_multiplier']),
   }
 }
 
@@ -205,6 +224,18 @@ export function pricingFromDraft(data: ModelRatioData): PricingValues {
       : { 'billing_setting.plugin_billing_expr': data.pluginBillingExpr }),
     'billing_setting.billing_mode':
       data.billingMode === 'tiered_expr' ? 'tiered_expr' : 'ratio',
+  }
+  for (const [field, key] of [
+    ['subscriptionMultiplier', 'billing_setting.subscription_multiplier'],
+    ['walletMultiplier', 'billing_setting.wallet_multiplier'],
+  ] as const) {
+    const value = data[field]
+    if (value === undefined || value === '') continue
+    const number = Number(value)
+    if (value.trim() === '' || !Number.isFinite(number) || number <= 0) {
+      throw new Error(t('Enter a finite, positive multiplier'))
+    }
+    values[key] = number
   }
   for (const [field, key] of Object.entries(pricingFieldMap)) {
     const value = data[field as keyof typeof pricingFieldMap]
@@ -245,6 +276,12 @@ export function applyPricingDraft(
   const copied = { ...values }
   delete copied['billing_setting.plugin_billing_expr']
   const next = applyPricingValues(options, copied, names)
+  for (const key of [
+    'billing_setting.subscription_multiplier',
+    'billing_setting.wallet_multiplier',
+  ] as const) {
+    next[key] = options[key]
+  }
   return names.includes(data.name)
     ? applyPricingValues(next, values, [data.name])
     : next
@@ -257,10 +294,11 @@ function applyPricingValues(
 ): PricingOptions {
   return Object.fromEntries(
     PRICING_KEYS.map((key) => {
-      const map = JSON.parse(options[key] ?? '{}') as Record<
-        string,
-        number | string
-      >
+      const parsed = tryJsonParse<Record<string, number | string>>(
+        options[key] ?? '{}'
+      )
+      if (!parsed.success) throw new Error(parsed.error)
+      const map = parsed.data
       if (key === 'billing_setting.plugin_billing_expr') {
         // Model-only imports and batch copies retain each target's provider prices.
         if (values[key] === undefined) return [key, JSON.stringify(map)]
@@ -297,7 +335,9 @@ export function pricingValuesByModel(
 ): Map<string, PricingValues> {
   const models = new Map<string, PricingValues>()
   for (const key of PRICING_KEYS) {
-    const map: unknown = JSON.parse(options[key] ?? '{}')
+    const parsed = tryJsonParse(options[key] ?? '{}')
+    if (!parsed.success) throw new Error(parsed.error)
+    const map = parsed.data
     if (map === null || typeof map !== 'object' || Array.isArray(map)) {
       throw new Error(t('Pricing must be a JSON object'))
     }
@@ -361,7 +401,12 @@ export function applyPriceSyncSelections(
       // parentheses, which would otherwise produce another upstream diff.
       validated['billing_setting.billing_expr'] = fields.billing_expr
     }
-    result = applyPricingValues(result, validated, [name])
+    const applied = applyPricingValues(result, validated, [name])
+    applied['billing_setting.subscription_multiplier'] =
+      result['billing_setting.subscription_multiplier']
+    applied['billing_setting.wallet_multiplier'] =
+      result['billing_setting.wallet_multiplier']
+    result = applied
   }
   return result
 }

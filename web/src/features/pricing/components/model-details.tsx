@@ -56,6 +56,7 @@ import {
   getSuccessRateTextClass,
 } from '@/features/performance-metrics/lib/format'
 import { PluginIcon } from '@/features/task-plugins/components/plugin-icon'
+import { toIntlLocale } from '@/i18n/languages'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
@@ -1469,7 +1470,13 @@ export interface ModelDetailsContentProps {
 }
 
 export function ModelDetailsContent(props: ModelDetailsContentProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  // Funding multipliers can be much smaller than the ordinary 2-decimal
+  // formatter supports; preserve their configured precision in this display.
+  const multiplierFormat = new Intl.NumberFormat(
+    toIntlLocale(i18n.resolvedLanguage || i18n.language),
+    { maximumSignificantDigits: 15 }
+  )
   const showRechargePrice = props.showRechargePrice ?? false
 
   const isDynamic =
@@ -1532,6 +1539,29 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
                 }}
               />
             )}
+            {props.model.subscription_multiplier !== undefined &&
+              props.model.wallet_multiplier !== undefined && (
+                <div className='grid grid-cols-2 overflow-hidden rounded-lg border'>
+                  <CatalogInfoCell label={t('Subscription multiplier')}>
+                    <span>
+                      {multiplierFormat.format(
+                        props.model.subscription_multiplier
+                      )}
+                      x
+                    </span>
+                  </CatalogInfoCell>
+                  <CatalogInfoCell label={t('Wallet multiplier')}>
+                    <span>
+                      {multiplierFormat.format(props.model.wallet_multiplier)}x
+                    </span>
+                  </CatalogInfoCell>
+                  <p className='text-muted-foreground col-span-2 px-3 pb-3 text-xs'>
+                    {t(
+                      'Funding multipliers apply to eligible HTTP/SSE text-token requests; channel metering uses list price'
+                    )}
+                  </p>
+                </div>
+              )}
             <GroupPricingSection
               model={props.model}
               groupRatio={props.groupRatio}

@@ -1337,12 +1337,15 @@ func GetUserSetting(id int, fromDB bool) (settingMap dto.UserSetting, err error)
 	return userBase.GetSetting(), nil
 }
 
-func IncreaseUserQuota(id int, quota int, db bool) (err error) {
+func IncreaseUserQuota(id int, quota int, db bool, fenced ...bool) (err error) {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
 	}
 	if err := common.ValidateWalletQuota(quota); err != nil {
 		return err
+	}
+	if len(fenced) > 0 && fenced[0] {
+		return commitQuotaCacheDelta(getUserCacheKey(id), id, quota, false, func() error { return increaseUserQuota(id, quota) })
 	}
 	if !db && common.BatchUpdateEnabled {
 		addNewRecord(BatchUpdateTypeUserQuota, id, quota)
@@ -1384,9 +1387,17 @@ func increaseUserQuota(id int, quota int) (err error) {
 	return ErrWalletQuotaLimitExceeded
 }
 
-func DecreaseUserQuota(id int, quota int, db bool) (err error) {
+func DecreaseUserQuota(id int, quota int, db bool, fenced ...bool) (err error) {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
+	}
+	if len(fenced) > 0 && fenced[0] {
+		return commitQuotaCacheDelta(getUserCacheKey(id), id, -quota, false, func() error { return decreaseUserQuota(id, quota) })
+	}
+	if !db && common.BatchUpdateEnabled {
+		addNewRecord(BatchUpdateTypeUserQuota, id, -quota)
+	} else if err := decreaseUserQuota(id, quota); err != nil {
+		return err
 	}
 	gopool.Go(func() {
 		err := cacheDecrUserQuota(id, int64(quota))
@@ -1394,19 +1405,18 @@ func DecreaseUserQuota(id int, quota int, db bool) (err error) {
 			common.SysLog("failed to decrease user quota: " + err.Error())
 		}
 	})
-	if !db && common.BatchUpdateEnabled {
-		addNewRecord(BatchUpdateTypeUserQuota, id, -quota)
-		return nil
-	}
-	return decreaseUserQuota(id, quota)
+	return nil
 }
 
 func decreaseUserQuota(id int, quota int) (err error) {
-	err = DB.Model(&User{}).Where("id = ?", id).Update("quota", gorm.Expr("quota - ?", quota)).Error
-	if err != nil {
-		return err
+	result := DB.Model(&User{}).Where("id = ?", id).Update("quota", gorm.Expr("quota - ?", quota))
+	if result.Error != nil {
+		return result.Error
 	}
-	return err
+	if quota != 0 && result.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func DeltaUpdateUserQuota(id int, delta int) (err error) {

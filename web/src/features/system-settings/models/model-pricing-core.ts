@@ -35,6 +35,28 @@ import { formatPricingNumber } from './pricing-format'
 export const createModelPricingSchema = (t: (key: string) => string) =>
   z.object({
     name: z.string().min(1, t('Model name is required')),
+    walletMultiplier: z
+      .string()
+      .optional()
+      .refine(
+        (value) =>
+          !value ||
+          (value.trim() !== '' &&
+            Number.isFinite(Number(value)) &&
+            Number(value) > 0),
+        t('Enter a finite, positive multiplier')
+      ),
+    subscriptionMultiplier: z
+      .string()
+      .optional()
+      .refine(
+        (value) =>
+          !value ||
+          (value.trim() !== '' &&
+            Number.isFinite(Number(value)) &&
+            Number(value) > 0),
+        t('Enter a finite, positive multiplier')
+      ),
     price: z.string().optional(),
     ratio: z.string().optional(),
     cacheRatio: z.string().optional(),
@@ -62,6 +84,8 @@ export type LaneKey =
 export type ModelRatioData = {
   pluginBillingExpr?: Record<string, string>
   name: string
+  subscriptionMultiplier?: string
+  walletMultiplier?: string
   price?: string
   ratio?: string
   cacheRatio?: string

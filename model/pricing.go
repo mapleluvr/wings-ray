@@ -48,6 +48,8 @@ type Pricing struct {
 	BillingExpr            string                               `json:"billing_expr,omitempty"`
 	BillingUsageSchema     map[string]jsplugin.UsageFieldSchema `json:"billing_usage_schema,omitempty"`
 	BillingUsageExamples   []jsplugin.UsageExample              `json:"billing_usage_examples,omitempty"`
+	SubscriptionMultiplier *float64                             `json:"subscription_multiplier,omitempty"`
+	WalletMultiplier       *float64                             `json:"wallet_multiplier,omitempty"`
 	PricingVersion         string                               `json:"pricing_version,omitempty"`
 }
 
@@ -383,6 +385,12 @@ func updatePricing() {
 					pricing.BillingExpr = expr
 				}
 			}
+		}
+		if pricing.BillingMode == billing_setting.BillingModeTieredExpr && billing_setting.IsTextTokenExpression(pricing.BillingExpr) &&
+			!strings.HasPrefix(model, "gpt-4o-audio") && !ratio_setting.ContainsAudioRatio(model) && !ratio_setting.ContainsAudioCompletionRatio(model) {
+			cfg := billing_setting.GetModelBillingConfig(model)
+			pricing.SubscriptionMultiplier = common.GetPointer(cfg.SubscriptionMultiplier)
+			pricing.WalletMultiplier = common.GetPointer(cfg.WalletMultiplier)
 		}
 		usageModel := model
 		plugin, ok := pluginGeneration.GetByModel(model)

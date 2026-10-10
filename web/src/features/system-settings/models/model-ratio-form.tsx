@@ -63,6 +63,8 @@ type ModelFormValues = {
   BillingMode: string
   BillingExpr: string
   PluginBillingExpr: string
+  SubscriptionMultiplier: string
+  WalletMultiplier: string
 }
 
 type ModelRatioFormProps = {
@@ -84,12 +86,26 @@ type ModelJsonFieldName =
   | 'ImageRatio'
   | 'AudioRatio'
   | 'AudioCompletionRatio'
+  | 'SubscriptionMultiplier'
+  | 'WalletMultiplier'
 
 const modelJsonFields: Array<{
   name: ModelJsonFieldName
   labelKey: string
   descriptionKey: string
 }> = [
+  {
+    name: 'SubscriptionMultiplier',
+    labelKey: 'Subscription multiplier',
+    descriptionKey:
+      'Applies to HTTP/SSE text token expression pricing. Blank uses 1×; channel usage keeps list price.',
+  },
+  {
+    name: 'WalletMultiplier',
+    labelKey: 'Wallet multiplier',
+    descriptionKey:
+      'Applies to HTTP/SSE text token expression pricing. Blank uses 1×; channel usage keeps list price.',
+  },
   {
     name: 'ModelPrice',
     labelKey: 'Model fixed pricing',
@@ -318,6 +334,8 @@ export const ModelRatioForm = memo(function ModelRatioForm({
               savedBillingMode={savedValues.BillingMode}
               savedBillingExpr={savedValues.BillingExpr}
               savedPluginBillingExpr={savedValues.PluginBillingExpr}
+              savedSubscriptionMultiplier={savedValues.SubscriptionMultiplier}
+              savedWalletMultiplier={savedValues.WalletMultiplier}
               modelPrice={form.watch('ModelPrice')}
               modelRatio={form.watch('ModelRatio')}
               cacheRatio={form.watch('CacheRatio')}
@@ -329,6 +347,8 @@ export const ModelRatioForm = memo(function ModelRatioForm({
               billingMode={form.watch('BillingMode')}
               billingExpr={form.watch('BillingExpr')}
               pluginBillingExpr={form.watch('PluginBillingExpr')}
+              subscriptionMultiplier={form.watch('SubscriptionMultiplier')}
+              walletMultiplier={form.watch('WalletMultiplier')}
               candidateModelNames={
                 isUnsetVariant ? enabledModelsQuery.data?.data : undefined
               }
@@ -343,6 +363,9 @@ export const ModelRatioForm = memo(function ModelRatioForm({
                   'billing_setting.billing_mode': 'BillingMode',
                   'billing_setting.billing_expr': 'BillingExpr',
                   'billing_setting.plugin_billing_expr': 'PluginBillingExpr',
+                  'billing_setting.subscription_multiplier':
+                    'SubscriptionMultiplier',
+                  'billing_setting.wallet_multiplier': 'WalletMultiplier',
                 }
                 const formField =
                   fieldMap[field] || (field as keyof ModelFormValues)

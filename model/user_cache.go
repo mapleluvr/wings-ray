@@ -67,11 +67,11 @@ func invalidateUserCache(userId int) error {
 	return common.RedisDelKey(getUserCacheKey(userId))
 }
 
-func populateUserCache(user User) error {
+func populateUserCache(user User, generation ...int64) error {
 	if !common.RedisEnabled {
 		return nil
 	}
-	return writeUserCache(user.ToBaseUser(), true)
+	return writeUserCache(user.ToBaseUser(), true, generation...)
 }
 
 // updateUserCache refreshes non-quota user cache fields.
@@ -95,6 +95,7 @@ func GetUserCache(userId int) (*UserBase, error) {
 	// Redis misses and read failures both fall back to the shared database. A
 	// version fence newer than the database is the one exception: allowing that
 	// snapshot would re-authorize a user while a restrictive update is pending.
+	generation, generationErr := quotaCacheGeneration(getUserCacheKey(userId))
 	user, err := GetUserById(userId, false)
 	if err != nil {
 		return nil, err
@@ -104,7 +105,10 @@ func GetUserCache(userId int) (*UserBase, error) {
 		if floorErr == nil && floor > user.AuthVersion {
 			return nil, ErrUserAuthCachePending
 		}
-		if err := populateUserCache(*user); err != nil {
+		if generationErr != nil {
+			return user.ToBaseUser(), nil
+		}
+		if err := populateUserCache(*user, generation); err != nil {
 			if errors.Is(err, ErrUserAuthCachePending) {
 				return nil, err
 			}

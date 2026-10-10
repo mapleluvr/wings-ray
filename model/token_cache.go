@@ -53,7 +53,7 @@ func invalidateTokenCacheForMutation(key string) error {
 // pre-consume decrements Redis first, so a snapshot must never overwrite any
 // field of a live hash.
 // 返回值：0=被 fence 拦截，1=完成初始化，2=哈希已存在，仅刷新 TTL。
-func cacheInitToken(token Token) (int, error) {
+func cacheInitToken(token Token, generation ...int64) (int, error) {
 	if !common.RedisEnabled {
 		return 0, nil
 	}
@@ -61,7 +61,21 @@ func cacheInitToken(token Token) (int, error) {
 	if token.AllowIps != nil {
 		allowIps = *token.AllowIps
 	}
+	expected := int64(0)
+	if len(generation) > 0 {
+		expected = generation[0]
+	} else {
+		var err error
+		expected, err = quotaCacheGeneration(getTokenCacheKey(token.Key))
+		if err != nil {
+			return 0, err
+		}
+	}
 	const script = `
+if tonumber(redis.call('HGET', KEYS[3], 'pending') or '0') > 0
+  or tonumber(redis.call('HGET', KEYS[3], 'generation') or '0') ~= tonumber(ARGV[18]) then
+  return 0
+end
 if redis.call('EXISTS', KEYS[2]) == 1 then
   return 0
 end
@@ -79,14 +93,14 @@ redis.call('EXPIRE', KEYS[1], ARGV[17])
 return 1`
 
 	return common.RDB.Eval(context.Background(), script, []string{
-		getTokenCacheKey(token.Key), getTokenCacheFenceKey(token.Key),
+		getTokenCacheKey(token.Key), getTokenCacheFenceKey(token.Key), getTokenCacheKey(token.Key) + ":quota-fence",
 	},
 		token.Id, token.UserId, token.Status, token.Name,
 		token.CreatedTime, token.AccessedTime, token.ExpiredTime,
 		strconv.FormatBool(token.UnlimitedQuota), strconv.FormatBool(token.ModelLimitsEnabled),
 		token.ModelLimits, allowIps, token.Group, strconv.FormatBool(token.CrossGroupRetry),
 		token.AutoGroups, token.RemainQuota, token.UsedQuota,
-		tokenCacheTTLSeconds(),
+		tokenCacheTTLSeconds(), expected,
 	).Int()
 }
 

@@ -68,6 +68,18 @@ func runProgram(prog *vm.Program, requestRules []RequestRuleTrace, usedVars map[
 	}
 
 	env := map[string]any{
+		"output_before": func(threshold float64) (float64, error) {
+			if math.IsNaN(threshold) || math.IsInf(threshold, 0) || threshold < 0 || math.IsNaN(params.Len) || math.IsInf(params.Len, 0) || params.Len < 0 || math.IsNaN(params.C) || math.IsInf(params.C, 0) || params.C < 0 {
+				return 0, fmt.Errorf("output_before requires finite, non-negative threshold and token counts")
+			}
+			if params.InputLengthVerified && params.Len >= threshold {
+				return 0, nil
+			}
+			if params.InputLengthVerified && params.OutputSequenceVerified {
+				return min(params.C, max(threshold-params.Len, 0)), nil
+			}
+			return params.C, nil
+		},
 		"image_count": float64(imageCount),
 		"p":           params.P,
 		"c":           params.C,

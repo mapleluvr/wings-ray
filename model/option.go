@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"maps"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/performance_setting"
@@ -195,6 +197,9 @@ func InitOptionMap() {
 }
 
 func loadOptionsFromDatabase() {
+	// Keep the database read and billing publication ordered with pricing saves.
+	modelPricingMutationMu.Lock()
+	defer modelPricingMutationMu.Unlock()
 	requestPolicyOptionMutex.Lock()
 	defer requestPolicyOptionMutex.Unlock()
 	defer func() {
@@ -205,10 +210,26 @@ func loadOptionsFromDatabase() {
 	passkeyOptionMutex.Lock()
 	defer passkeyOptionMutex.Unlock()
 	options, _ := AllOption()
+	billingOptions := make(map[string]string)
+	for _, option := range options {
+		if strings.HasPrefix(option.Key, "billing_setting.") {
+			billingOptions[option.Key] = option.Value
+		}
+	}
+	if err := billing_setting.PublishBillingOptions(billingOptions); err != nil {
+		common.SysError("invalid billing configuration: " + err.Error())
+		return
+	}
 	passkeyOptions := make(map[string]string)
 	for _, option := range options {
 		if IsPasskeyDomainOption(option.Key) {
 			passkeyOptions[option.Key] = option.Value
+			continue
+		}
+		if strings.HasPrefix(option.Key, "billing_setting.") {
+			common.OptionMapRWMutex.Lock()
+			common.OptionMap[option.Key] = option.Value
+			common.OptionMapRWMutex.Unlock()
 			continue
 		}
 		err := updateOptionMap(option.Key, option.Value)
@@ -289,6 +310,20 @@ func UpdateOptionsBulk(values map[string]string) error {
 			_, err := UpdatePasskeyDomainOptions(values, false, "")
 			return err
 		}
+	}
+	// Pricing maps share validation, locking and publication with model saves.
+	// Reject mixed bulk writes instead of committing a partly validated draft.
+	pricing := false
+	for key := range values {
+		pricing = pricing || IsModelPricingOption(key)
+	}
+	if pricing {
+		for key := range values {
+			if !IsModelPricingOption(key) {
+				return fmt.Errorf("pricing options must be saved separately from %s", key)
+			}
+		}
+		return UpdateModelPricingOptions(values)
 	}
 	for key, value := range values {
 		if err := validateOptionValue(key, value); err != nil {

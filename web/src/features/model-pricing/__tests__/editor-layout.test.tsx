@@ -287,6 +287,8 @@ function PricingFormFixture(props: {
     BillingMode: '{}',
     BillingExpr: '{}',
     PluginBillingExpr: '{}',
+    SubscriptionMultiplier: '{}',
+    WalletMultiplier: '{}',
     ExposeRatioEnabled: false,
   }
   const [actionsContainer, setActionsContainer] =

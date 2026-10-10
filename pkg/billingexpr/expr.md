@@ -158,6 +158,21 @@ OpenAI 已于 2026-05-12 下线 DALL·E 2/3；其校验、默认值和倍率保�
 
 > **注意：** 自动扣除针对 GPT/OpenAI 格式的 API（prompt_tokens 包含子类别）。Claude 格式的 API 不重复扣除缓存；未独立计价的缓存读取加回输入。系统根据上游返回格式自动处理。
 
+### Verified Output Positions (opt-in)
+
+`output_before(T)` returns the output tokens charged at the before-threshold price. T is an exact token threshold chosen by the expression; it does not change the decimal price unit `1M = 1000000`.
+
+```text
+tier("output", output_before(256000) * 6 + (c - output_before(256000)) * 12)
+```
+
+- When the host has verified both full input length and a single continuous output sequence, the result is `min(c, max(T-len, 0))`.
+- When the input length is verified and `len >= T`, all output is after the threshold and the result is zero.
+- Otherwise the result is `c`, charging the entire output at the before-threshold price. Estimated/missing counts, aggregated choices, and unverified provider sequence semantics do not establish precise positions.
+- Threshold and token counts must be finite and non-negative; invalid values fail evaluation.
+
+The verification facts are internal `TokenParams` fields, excluded from client JSON. **Current relay adaptors have no binding verified against a real provider, so production requests supply no trusted position facts and this function stays conservative.** The simulator can select artificial unverified/input-only/continuous-sequence scenarios; passing a simulation never certifies provider capability. Existing expressions and the meaning of `p`, `c`, and `len` are unchanged. Raw `min/max` expressions remain available for administrators who independently verify their provider's counting semantics.
+
 ### Built-in Functions
 
 | Function | Signature | Purpose |

@@ -34,11 +34,15 @@ export type ModelPricingSnapshotInput = {
   billingMode: string
   billingExpr: string
   pluginBillingExpr?: string
+  subscriptionMultiplier?: string
+  walletMultiplier?: string
 }
 
 export type ModelPricingSnapshot = {
   pluginBillingExpr?: Record<string, string>
   name: string
+  subscriptionMultiplier?: string
+  walletMultiplier?: string
   price?: string
   ratio?: string
   cacheRatio?: string
@@ -167,6 +171,8 @@ export const buildModelSnapshots = ({
   billingMode,
   billingExpr,
   pluginBillingExpr = '{}',
+  subscriptionMultiplier = '{}',
+  walletMultiplier = '{}',
 }: ModelPricingSnapshotInput): ModelPricingSnapshot[] => {
   const priceMap = safeJsonParse<Record<string, number>>(modelPrice, {
     fallback: {},
@@ -213,6 +219,13 @@ export const buildModelSnapshots = ({
     pluginBillingExpr,
     { fallback: {}, context: 'plugin billing expressions' }
   )
+  const subscriptionMap = safeJsonParse<Record<string, number>>(
+    subscriptionMultiplier,
+    { fallback: {} }
+  )
+  const walletMap = safeJsonParse<Record<string, number>>(walletMultiplier, {
+    fallback: {},
+  })
   const pluginExpressionsByModel = new Map<string, Record<string, string>>()
   for (const [key, expression] of Object.entries(pluginExprMap)) {
     const parts = splitPluginBillingExprKey(key)
@@ -235,6 +248,8 @@ export const buildModelSnapshots = ({
     ...Object.keys(audioCompletionMap),
     ...Object.keys(billingModeMap),
     ...Object.keys(billingExprMap),
+    ...Object.keys(subscriptionMap),
+    ...Object.keys(walletMap),
   ])
 
   return [...modelNames].map((name) => {
@@ -247,6 +262,10 @@ export const buildModelSnapshots = ({
     const audio = audioMap[name]?.toString() || ''
     const audioCompletion = audioCompletionMap[name]?.toString() || ''
 
+    const funding = {
+      subscriptionMultiplier: subscriptionMap[name]?.toString() || '',
+      walletMultiplier: walletMap[name]?.toString() || '',
+    }
     const modeForModel = billingModeMap[name]
     if (modeForModel === 'tiered_expr') {
       const fullExpr = billingExprMap[name] || ''
@@ -254,6 +273,7 @@ export const buildModelSnapshots = ({
         splitBillingExprAndRequestRules(fullExpr)
       return {
         name,
+        ...funding,
         pluginBillingExpr: pluginExpressionsByModel.get(name),
         billingMode: 'tiered_expr',
         billingExpr: pureExpr,
@@ -272,6 +292,7 @@ export const buildModelSnapshots = ({
 
     return {
       name,
+      ...funding,
       pluginBillingExpr: pluginExpressionsByModel.get(name),
       price,
       ratio,
@@ -298,6 +319,8 @@ export const buildModelSnapshots = ({
 export const getSnapshotSignature = (snapshot?: ModelPricingSnapshot) => {
   if (!snapshot) return ''
   return JSON.stringify({
+    subscriptionMultiplier: snapshot.subscriptionMultiplier || '',
+    walletMultiplier: snapshot.walletMultiplier || '',
     price: snapshot.price || '',
     ratio: snapshot.ratio || '',
     cacheRatio: snapshot.cacheRatio || '',

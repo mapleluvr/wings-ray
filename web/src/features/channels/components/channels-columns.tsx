@@ -394,9 +394,9 @@ export function BalanceCell({ channel }: { channel: Channel }) {
           })
         )
       : remainingFull
-  const usedLabel = `${t('Used:')} ${usedFull}`
+  const usedLabel = `${t('Metered:')} ${usedFull}`
   const remainingLabel = `${t('Remaining:')} ${remainingFull}`
-  const maskedUsedLabel = `${t('Used:')} ${SENSITIVE_MASK}`
+  const maskedUsedLabel = `${t('Metered:')} ${SENSITIVE_MASK}`
   const maskedRemainingLabel = `${t('Remaining:')} ${SENSITIVE_MASK}`
 
   // Tag row: only show cumulative used quota
@@ -409,7 +409,7 @@ export function BalanceCell({ channel }: { channel: Channel }) {
               <StatusBadge
                 label={
                   sensitiveVisible
-                    ? `${t('Used:')} ${usedDisplay}`
+                    ? `${t('Metered:')} ${usedDisplay}`
                     : maskedUsedLabel
                 }
                 variant='neutral'
@@ -1171,7 +1171,7 @@ export function useChannelsColumns(
       // Balance column (Used/Remaining)
       {
         accessorKey: 'balance',
-        header: t('Used / Remaining'),
+        header: t('Metered / Upstream balance'),
         cell: ({ row }) => <BalanceCell channel={row.original} />,
         size: 180,
       },

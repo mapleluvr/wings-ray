@@ -398,7 +398,7 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 		return nil
 	}
 	// 原子预扣：检查与扣减在同一操作中完成，并发请求不可能同时通过检查后超扣。
-	reserved, err := model.TryReserveTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, quota, relayInfo.TokenUnlimited)
+	reserved, err := model.TryReserveTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, quota, relayInfo.TokenUnlimited, relayInfo.FundingPricing != nil)
 	if err != nil {
 		return err
 	}

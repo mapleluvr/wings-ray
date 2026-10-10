@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -18,27 +19,149 @@ import (
 )
 
 const (
-	BillingModeRatio        = "ratio"
-	BillingModeTieredExpr   = "tiered_expr"
-	BillingModeField        = "billing_mode"
-	BillingExprField        = "billing_expr"
-	PluginBillingExprOption = "billing_setting.plugin_billing_expr"
-	maxTaskExprSmokeTests   = 64
+	BillingModeRatio             = "ratio"
+	BillingModeTieredExpr        = "tiered_expr"
+	BillingModeField             = "billing_mode"
+	BillingExprField             = "billing_expr"
+	PluginBillingExprOption      = "billing_setting.plugin_billing_expr"
+	SubscriptionMultiplierOption = "billing_setting.subscription_multiplier"
+	WalletMultiplierOption       = "billing_setting.wallet_multiplier"
+	maxTaskExprSmokeTests        = 64
 )
 
 // BillingSetting is managed by config.GlobalConfig.Register.
 // DB keys: billing_setting.billing_mode, billing_setting.billing_expr,
 // billing_setting.plugin_billing_expr
 type BillingSetting struct {
-	BillingMode       map[string]string `json:"billing_mode"`
-	BillingExpr       map[string]string `json:"billing_expr"`
-	PluginBillingExpr map[string]string `json:"plugin_billing_expr"`
+	BillingMode            map[string]string  `json:"billing_mode"`
+	BillingExpr            map[string]string  `json:"billing_expr"`
+	PluginBillingExpr      map[string]string  `json:"plugin_billing_expr"`
+	SubscriptionMultiplier map[string]float64 `json:"subscription_multiplier"`
+	WalletMultiplier       map[string]float64 `json:"wallet_multiplier"`
 }
 
 var billingSetting = BillingSetting{
-	BillingMode:       make(map[string]string),
-	BillingExpr:       make(map[string]string),
-	PluginBillingExpr: make(map[string]string),
+	BillingMode:            make(map[string]string),
+	BillingExpr:            make(map[string]string),
+	PluginBillingExpr:      make(map[string]string),
+	SubscriptionMultiplier: make(map[string]float64),
+	WalletMultiplier:       make(map[string]float64),
+}
+
+var billingSettingMu sync.RWMutex
+
+// UpdateConfig publishes a complete billing configuration in one step. Decode
+// into new maps first: readers must never combine prices from different saves.
+func (s *BillingSetting) UpdateConfig(options map[string]string) error {
+	billingSettingMu.Lock()
+	defer billingSettingMu.Unlock()
+	next := *s
+	for key, target := range map[string]any{
+		"billing_mode": &next.BillingMode, "billing_expr": &next.BillingExpr,
+		"plugin_billing_expr":     &next.PluginBillingExpr,
+		"subscription_multiplier": &next.SubscriptionMultiplier,
+		"wallet_multiplier":       &next.WalletMultiplier,
+	} {
+		raw, exists := options[key]
+		if !exists {
+			continue
+		}
+		// Unmarshal merges map values; clear only the local copy before decoding.
+		switch key {
+		case "billing_mode":
+			next.BillingMode = nil
+		case "billing_expr":
+			next.BillingExpr = nil
+		case "plugin_billing_expr":
+			next.PluginBillingExpr = nil
+		case "subscription_multiplier":
+			next.SubscriptionMultiplier = nil
+		case "wallet_multiplier":
+			next.WalletMultiplier = nil
+		}
+		if err := common.UnmarshalJsonStr(raw, target); err != nil {
+			return fmt.Errorf("%s: %w", key, err)
+		}
+	}
+	for key, entries := range map[string]map[string]float64{
+		"subscription_multiplier": next.SubscriptionMultiplier, "wallet_multiplier": next.WalletMultiplier,
+	} {
+		for name, value := range entries {
+			if strings.TrimSpace(name) == "" || value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+				return fmt.Errorf("%s[%s] must be a finite positive multiplier", key, name)
+			}
+		}
+	}
+	*s = next
+	return nil
+}
+
+func (s *BillingSetting) ExportConfig() (map[string]string, error) {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
+	result := make(map[string]string)
+	for key, value := range map[string]any{
+		"billing_mode": s.BillingMode, "billing_expr": s.BillingExpr, "plugin_billing_expr": s.PluginBillingExpr,
+		"subscription_multiplier": s.SubscriptionMultiplier, "wallet_multiplier": s.WalletMultiplier,
+	} {
+		encoded, err := common.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		if string(encoded) == "null" {
+			encoded = []byte("{}")
+		}
+		result[key] = string(encoded)
+	}
+	return result, nil
+}
+
+// PublishBillingOptions is used by transactional saves and database reloads.
+func PublishBillingOptions(options map[string]string) error {
+	values := make(map[string]string)
+	for key, value := range options {
+		if field, ok := strings.CutPrefix(key, "billing_setting."); ok {
+			values[field] = value
+		}
+	}
+	return billingSetting.UpdateConfig(values)
+}
+
+// ModelBillingConfig freezes expression and both independent source policies.
+type ModelBillingConfig struct {
+	Mode                   string
+	Expression             string
+	SubscriptionMultiplier float64
+	WalletMultiplier       float64
+}
+
+func GetModelBillingConfig(model string) ModelBillingConfig {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
+	result := ModelBillingConfig{Mode: getBillingMode(model), SubscriptionMultiplier: 1, WalletMultiplier: 1}
+	result.Expression, _ = getBillingExpr(model)
+	if value, ok := billingSetting.SubscriptionMultiplier[model]; ok {
+		result.SubscriptionMultiplier = value
+	}
+	if value, ok := billingSetting.WalletMultiplier[model]; ok {
+		result.WalletMultiplier = value
+	}
+	return result
+}
+
+// IsTextTokenExpression restricts funding policies to the initial token-only
+// scope shared by request pricing and the public catalog.
+func IsTextTokenExpression(expression string) bool {
+	if billingexpr.UsesFixedPricing(expression) || len(billingexpr.UsedUsageKeys(expression)) != 0 {
+		return false
+	}
+	vars := billingexpr.UsedVars(expression)
+	for _, name := range []string{"ai", "ao", "img", "img_o", "img_cr", "image_count"} {
+		if vars[name] {
+			return false
+		}
+	}
+	return vars != nil
 }
 
 func init() {
@@ -50,6 +173,12 @@ func init() {
 // ---------------------------------------------------------------------------
 
 func GetBillingMode(model string) string {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
+	return getBillingMode(model)
+}
+
+func getBillingMode(model string) string {
 	if mode, ok := billingSetting.BillingMode[model]; ok {
 		return mode
 	}
@@ -68,10 +197,16 @@ func GetBillingMode(model string) string {
 }
 
 func GetBillingExpr(model string) (string, bool) {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
+	return getBillingExpr(model)
+}
+
+func getBillingExpr(model string) (string, bool) {
 	if expr, ok := billingSetting.BillingExpr[model]; ok {
 		return expr, true
 	}
-	if GetBillingMode(model) == BillingModeTieredExpr {
+	if getBillingMode(model) == BillingModeTieredExpr {
 		expr, ok := builtinBillingExpr[model]
 		return expr, ok
 	}
@@ -96,10 +231,14 @@ func SplitPluginBillingExprKey(key string) (plugin, model string, ok bool) {
 }
 
 func GetPluginBillingExprCopy() map[string]string {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
 	return maps.Clone(billingSetting.PluginBillingExpr)
 }
 
 func GetPluginBillingExpr(pluginKey, model string) (string, bool) {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
 	expression, ok := billingSetting.PluginBillingExpr[PluginBillingExprKey(pluginKey, model)]
 	return expression, ok
 }
@@ -149,9 +288,11 @@ func GetBuiltinBillingExprCopy() map[string]string {
 }
 
 func GetBillingModeCopy() map[string]string {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
 	modes := lo.Assign(billingSetting.BillingMode)
 	for model := range builtinBillingExpr {
-		if _, configured := modes[model]; !configured && GetBillingMode(model) == BillingModeTieredExpr {
+		if _, configured := modes[model]; !configured && getBillingMode(model) == BillingModeTieredExpr {
 			modes[model] = BillingModeTieredExpr
 		}
 	}
@@ -159,12 +300,14 @@ func GetBillingModeCopy() map[string]string {
 }
 
 func GetBillingExprCopy() map[string]string {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
 	expressions := lo.Assign(billingSetting.BillingExpr)
 	for model := range builtinBillingExpr {
 		if _, configured := expressions[model]; configured {
 			continue
 		}
-		if expression, ok := GetBillingExpr(model); ok {
+		if expression, ok := getBillingExpr(model); ok {
 			expressions[model] = expression
 		}
 	}

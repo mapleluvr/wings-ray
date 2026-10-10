@@ -88,6 +88,8 @@ export type PricingModel = {
   /** Display-only labeled usage vectors for pricing examples. */
   billing_usage_examples?: BillingUsageExample[]
   /** Pricing version returned by backend, useful for cache busting */
+  subscription_multiplier?: number
+  wallet_multiplier?: number
   pricing_version?: string
   /**
    * Optional model metadata fields reserved for backend-provided catalog data.

@@ -26,14 +26,24 @@ import {
 } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
+import {
+  PRICING_KEYS,
+  type PricingOptions,
+} from '@/features/model-pricing/pricing'
 import { api } from '@/lib/api'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { ModelRatioVisualEditor } from '../model-ratio-visual-editor'
+import { RatioSettingsCard } from '../ratio-settings-card'
+
+const previousUser = useAuthStore.getState().auth.user
 
 let client: QueryClient | undefined
 
 afterEach(() => {
   client?.clear()
+  useAuthStore.getState().auth.setUser(previousUser)
   localStorage.clear()
   window.getSelection()?.removeAllRanges()
   vi.restoreAllMocks()
@@ -123,3 +133,140 @@ it('keeps other rows mounted when a different model is opened for editing', asyn
   ).toBeInTheDocument()
   expect(otherName).toBeInTheDocument()
 })
+
+it.each(['change subscription', 'clear wallet'])(
+  'round-trips funding policies through the full system settings save path: %s',
+  async (action) => {
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 1, username: 'root', role: ROLE.SUPER_ADMIN })
+    const expression = 'tier("base", p * 2 + c * 6)'
+    const options = Object.fromEntries(
+      PRICING_KEYS.map((key) => [key, '{}'])
+    ) as PricingOptions
+    options['billing_setting.billing_mode'] = JSON.stringify({
+      'funded-model': 'tiered_expr',
+    })
+    options['billing_setting.billing_expr'] = JSON.stringify({
+      'funded-model': expression,
+    })
+    options['billing_setting.subscription_multiplier'] = JSON.stringify({
+      'funded-model': 0.5,
+      'funding-only': 0.8,
+    })
+    options['billing_setting.wallet_multiplier'] = JSON.stringify({
+      'funded-model': 1.5,
+    })
+    const configured = {
+      'billing_setting.billing_mode': 'tiered_expr',
+      'billing_setting.billing_expr': expression,
+      'billing_setting.subscription_multiplier': 0.5,
+      'billing_setting.wallet_multiplier': 1.5,
+    }
+    vi.spyOn(api, 'get').mockImplementation(async (url) => {
+      if (url === '/api/option/model_pricing') {
+        return {
+          data: {
+            success: true,
+            data: {
+              options,
+              empty_version: 'empty',
+              entries: [
+                {
+                  model_name: 'funded-model',
+                  version: 'original',
+                  configured,
+                  effective: configured,
+                },
+              ],
+            },
+          },
+        }
+      }
+      return { data: { success: true, data: [], vendors: [] } }
+    })
+    const save = vi
+      .spyOn(api, 'patch')
+      .mockResolvedValue({ data: { success: true } })
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <RatioSettingsCard
+          visibleTabs={['models']}
+          toolPricesDefault='{}'
+          modelDefaults={{
+            ModelPrice: '{}',
+            ModelRatio: '{}',
+            CacheRatio: '{}',
+            CreateCacheRatio: '{}',
+            CompletionRatio: '{}',
+            ImageRatio: '{}',
+            AudioRatio: '{}',
+            AudioCompletionRatio: '{}',
+            ExposeRatioEnabled: false,
+            BillingMode: '{}',
+            BillingExpr: '{}',
+            PluginBillingExpr: '{}',
+          }}
+          groupDefaults={{
+            GroupRatio: '{}',
+            TopupGroupRatio: '{}',
+            UserUsableGroups: '{}',
+            GroupGroupRatio: '{}',
+            AutoGroups: '[]',
+            MaxTokenAutoGroups: 1,
+            DefaultUseAutoGroup: false,
+            GroupSpecialUsableGroup: '{}',
+          }}
+        />
+      </QueryClientProvider>
+    )
+    const row = await screen.findByRole('row', { name: /funded-model/ })
+    fireEvent.click(within(row).getByText('funded-model'))
+    const editor = within(
+      await screen.findByRole('region', { name: 'Edit model pricing' })
+    )
+    const subscription = editor.getByRole('textbox', {
+      name: 'Subscription multiplier',
+    })
+    const wallet = editor.getByRole('textbox', { name: 'Wallet multiplier' })
+    expect(subscription).toHaveValue('0.5')
+    expect(wallet).toHaveValue('1.5')
+    expect(
+      screen.getByRole('row', { name: /funding-only/ })
+    ).toBeInTheDocument()
+    fireEvent.change(action === 'change subscription' ? subscription : wallet, {
+      target: { value: action === 'change subscription' ? '0.7' : '' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save model prices' }))
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+    expect(save.mock.calls[0][0]).toBe('/api/option/model_pricing')
+    const request = save.mock.calls[0][1] as {
+      changes: Array<{
+        model_name: string
+        expected_version: string
+        pricing: Record<string, unknown>
+      }>
+    }
+    expect(request.changes).toHaveLength(1)
+    expect(request.changes[0]).toMatchObject({
+      model_name: 'funded-model',
+      expected_version: 'original',
+    })
+    expect(
+      request.changes[0].pricing['billing_setting.subscription_multiplier']
+    ).toBe(action === 'change subscription' ? 0.7 : 0.5)
+    if (action === 'change subscription') {
+      expect(
+        request.changes[0].pricing['billing_setting.wallet_multiplier']
+      ).toBe(1.5)
+    } else {
+      expect(request.changes[0].pricing).not.toHaveProperty(
+        'billing_setting.wallet_multiplier'
+      )
+    }
+    expect(request.changes[0].pricing['billing_setting.billing_expr']).toBe(
+      expression
+    )
+  }
+)

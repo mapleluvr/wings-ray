@@ -91,6 +91,11 @@ func (cm *ConfigManager) SaveToDB(updateFunc func(key, value string) error) erro
 
 // 辅助函数：将配置对象转换为map
 func configToMap(config any) (map[string]string, error) {
+	if codec, ok := config.(interface {
+		ExportConfig() (map[string]string, error)
+	}); ok {
+		return codec.ExportConfig()
+	}
 	result := make(map[string]string)
 
 	val := reflect.ValueOf(config)
@@ -163,6 +168,9 @@ func configToMap(config any) (map[string]string, error) {
 
 // 辅助函数：从map更新配置对象
 func updateConfigFromMap(config any, configMap map[string]string) error {
+	if codec, ok := config.(interface{ UpdateConfig(map[string]string) error }); ok {
+		return codec.UpdateConfig(configMap)
+	}
 	val := reflect.ValueOf(config)
 	if val.Kind() != reflect.Pointer {
 		return nil

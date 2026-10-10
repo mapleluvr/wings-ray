@@ -75,6 +75,31 @@ afterEach(() => {
   localStorage.clear()
 })
 
+it('keeps independent funding multipliers across currency changes and clears one override', async () => {
+  const editor = renderEditor({
+    billingMode: 'tiered_expr',
+    billingExpr: 'tier("base", p * 2)',
+    subscriptionMultiplier: '0.5',
+    walletMultiplier: '1.5',
+  })
+  const subscription = screen.getByRole('textbox', {
+    name: 'Subscription multiplier',
+  })
+  const wallet = screen.getByRole('textbox', { name: 'Wallet multiplier' })
+  expect(subscription).toHaveValue('0.5')
+  expect(wallet).toHaveValue('1.5')
+  await selectCurrency('Site currency (CNY)')
+  expect(subscription).toHaveValue('0.5')
+  fireEvent.change(subscription, { target: { value: 'invalid' } })
+  expect(await commit(editor.ref)).toBeNull()
+  expect(subscription).toHaveAttribute('aria-invalid', 'true')
+  fireEvent.change(subscription, { target: { value: '' } })
+  expect(await commit(editor.ref)).toMatchObject({
+    subscriptionMultiplier: '',
+    walletMultiplier: '1.5',
+  })
+})
+
 it('reads preview prices and billing metadata from the common data envelope', async () => {
   const effective = { ModelRatio: 0, CompletionRatio: 2 }
   const billingDetails = { audio_input_price: 1 }

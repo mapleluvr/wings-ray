@@ -82,9 +82,12 @@ export function LogCostDisplay(props: LogCostDisplayProps) {
   const { t } = useTranslation()
   const isSubscription = props.other?.billing_source === 'subscription'
   const showToolSurcharge = hasToolSurcharge(props.other)
-  const quota = isSubscription
-    ? (props.other?.subscription_consumed ?? props.quota)
-    : props.quota
+  const funding = props.other?.funding_pricing
+  const quota =
+    funding?.charged_quota ??
+    (isSubscription
+      ? (props.other?.subscription_consumed ?? props.quota)
+      : props.quota)
   let source: string | undefined
 
   // A log billed to a subscription always names its funding source: that
@@ -134,6 +137,9 @@ export function LogCostDisplay(props: LogCostDisplayProps) {
           ) : null}
           <span className='whitespace-nowrap'>{formatLogQuota(quota)}</span>
         </StatusBadge>
+        {funding && funding.funding_status !== 'settled' ? (
+          <Badge variant='warning'>{t('Partial charge')}</Badge>
+        ) : null}
         {showToolSurcharge ? <ToolSurchargeMarker /> : null}
       </div>
     </TooltipProvider>

@@ -11,6 +11,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestVerifiedOutputPositions(t *testing.T) {
+	const expression = `tier("output", output_before(256000) * 6 + (c - output_before(256000)) * 12)`
+	for _, tc := range []struct {
+		name                          string
+		input, output                 float64
+		inputVerified, outputVerified bool
+		want                          float64
+	}{
+		{"reliable crossing", 255000, 3000, true, true, 30000},
+		{"unverified crossing", 255000, 3000, true, false, 18000},
+		{"all after", 256000, 3000, true, false, 36000},
+		{"unknown input cannot prove all after", 256000, 3000, false, false, 18000},
+		{"ends at boundary", 253000, 3000, true, true, 18000},
+		{"zero output", 255000, 0, true, true, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cost, _, err := billingexpr.RunExpr(expression, billingexpr.TokenParams{Len: tc.input, C: tc.output, InputLengthVerified: tc.inputVerified, OutputSequenceVerified: tc.outputVerified})
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, cost)
+		})
+	}
+	_, _, err := billingexpr.RunExpr(`tier("bad", output_before(-1))`, billingexpr.TokenParams{})
+	require.Error(t, err)
+}
+
 func TestFixedPriceBranches(t *testing.T) {
 	const expression = `(len <= 32000 ? tier("short", fixed(0.01)) : tier("long", p * 2 + c * 8)) * (param("fast") == true ? 2 : 1)`
 	for _, tc := range []struct {

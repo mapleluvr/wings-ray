@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
@@ -14,6 +15,24 @@ const (
 	BillingSourceWallet       = "wallet"
 	BillingSourceSubscription = "subscription"
 )
+
+// fundingReservationQuota converts the frozen list estimate independently for
+// each candidate. Reserve and Settle continue to accept already adjusted quota.
+func fundingReservationQuota(info *relaycommon.RelayInfo, source string, fallback int) (int, error) {
+	if info.FundingPricing == nil || info.TieredBillingSnapshot == nil {
+		return fallback, nil
+	}
+	pricing, snap := info.FundingPricing, info.TieredBillingSnapshot
+	ratio := pricing.WalletMultiplier
+	if source == BillingSourceSubscription {
+		ratio = pricing.SubscriptionMultiplier
+	}
+	list := snap.EstimatedQuotaBeforeGroup * snap.GroupRatio
+	if _, err := billingexpr.QuotaRoundStrict(list); err != nil {
+		return 0, err
+	}
+	return billingexpr.QuotaRoundStrict(list * ratio)
+}
 
 // PreConsumeBilling 根据用户计费偏好创建 BillingSession 并执行预扣费。
 // 会话存储在 relayInfo.Billing 上，供后续 Settle / Refund 使用。

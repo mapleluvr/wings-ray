@@ -449,16 +449,62 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, fmt.Sprintf("Audio Input 花费 %s", logger.LogQuota(common.QuotaFromDecimal(q))))
 	}
 
+	listQuota := summary.Quota
+	pricing := relayInfo.FundingPricing
+	if pricing != nil && tieredBillingApplied {
+		pricing.ListQuota = listQuota
+		pricing.Basis = "actual"
+		if tieredResult != nil {
+			raw := tieredResult.ActualQuotaBeforeGroup * snap.GroupRatio
+			var clamp *common.QuotaClamp
+			if summary.ToolCallSurchargeQuota.IsZero() {
+				summary.Quota, clamp = common.QuotaRoundChecked(raw * pricing.Multiplier)
+			} else {
+				// Existing tool fees stay at list price; only token cost is adjusted.
+				summary.Quota, clamp = common.QuotaFromDecimalChecked(decimal.NewFromFloat(raw).
+					Mul(decimal.NewFromFloat(pricing.Multiplier)).Add(summary.ToolCallSurchargeQuota))
+			}
+			noteQuotaClamp(relayInfo, clamp)
+		} else {
+			// Evaluation failure already returns the actual reservation. Do not
+			// apply the multiplier a second time or reverse-infer a list price.
+			pricing.Basis = "reservation"
+			var clamp *common.QuotaClamp
+			pricing.ListQuota, clamp = common.QuotaFromDecimalChecked(decimal.NewFromInt(int64(snap.EstimatedQuotaAfterGroup)).Add(summary.ToolCallSurchargeQuota))
+			noteQuotaClamp(relayInfo, clamp)
+			listQuota = pricing.ListQuota
+		}
+		pricing.DueQuota = summary.Quota
+	}
+
 	if !summary.hasBillableUsage() {
 		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
-	} else {
-		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
-		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
 
 	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
 		logger.LogError(ctx, "error settling billing: "+err.Error())
+		if pricing != nil && pricing.FundingStatus == "failed" {
+			// The original reservation remains paid when supplemental settlement
+			// fails. Finalize that known amount, preserving the unpaid due amount.
+			due := pricing.DueQuota
+			if retainErr := relayInfo.Billing.Settle(pricing.ChargedQuota); retainErr != nil {
+				logger.LogError(ctx, "error retaining billing reservation: "+retainErr.Error())
+			}
+			pricing.DueQuota = due
+			pricing.FundingStatus = "partial"
+		}
+	}
+	if pricing != nil {
+		summary.Quota = pricing.ChargedQuota
+		if pricing.FundingStatus == "reserved" && relayInfo.Billing == nil {
+			pricing.ChargedQuota, pricing.DueQuota = summary.Quota, summary.Quota
+			pricing.FundingStatus, pricing.TokenStatus = "settled", "settled"
+		}
+	}
+	if summary.hasBillableUsage() {
+		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
+		model.UpdateChannelUsedQuota(relayInfo.ChannelId, listQuota)
 	}
 
 	logModel := summary.ModelName
@@ -531,6 +577,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	}
 
+	if pricing != nil {
+		other.SetPublic("funding_pricing", pricing)
+	}
 	attachQuotaSaturation(ctx, relayInfo, other)
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{

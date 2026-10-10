@@ -28,6 +28,12 @@ import { I18nextProvider } from 'react-i18next'
 import { afterAll, afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import en from '@/i18n/locales/en.json'
+import fr from '@/i18n/locales/fr.json'
+import ja from '@/i18n/locales/ja.json'
+import ru from '@/i18n/locales/ru.json'
+import viLocale from '@/i18n/locales/vi.json'
+import zhTW from '@/i18n/locales/zh-TW.json'
+import zh from '@/i18n/locales/zh.json'
 import {
   DEFAULT_CURRENCY_CONFIG,
   useSystemConfigStore,
@@ -36,6 +42,7 @@ import {
 import type { UsageLog } from '../../data/schema'
 import type { LogOtherData } from '../../types'
 import { useCommonLogsColumns } from '../columns/common-logs-columns'
+import { DetailsDialog } from '../dialogs/details-dialog'
 
 vi.mock('@lobehub/icons', () => ({}))
 vi.hoisted(() => {
@@ -98,7 +105,7 @@ const i18n = createInstance()
 beforeEach(async () => {
   await i18n.init({
     lng: 'en',
-    resources: { en },
+    resources: { en, fr, ja, ru, vi: viLocale, zhCN: zh, zhTW },
     interpolation: { escapeValue: false },
   })
   useSystemConfigStore
@@ -190,6 +197,55 @@ test.each([
     admin_info: { task_plugin: plugin },
   })
   expect(preview.textContent).toBe(expected)
+})
+
+test('shows a tiny positive funding multiplier without rounding it to zero across language changes', async () => {
+  const log = makeLog({
+    billing_mode: 'tiered_expr',
+    funding_pricing: {
+      model_name: 'example',
+      source: 'wallet',
+      multiplier: 0.00001,
+      list_quota: 1000000,
+      due_quota: 10,
+      charged_quota: 10,
+      funding_status: 'settled',
+      token_status: 'settled',
+      basis: 'actual',
+    },
+  })
+  render(
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={client}>
+        <DetailsDialog
+          log={log}
+          isAdmin={false}
+          isRoot={false}
+          open
+          onOpenChange={() => undefined}
+        />
+      </QueryClientProvider>
+    </I18nextProvider>
+  )
+  const dialog = within(await screen.findByRole('dialog'))
+  expect(dialog.getByText('Funding multiplier')).toBeVisible()
+  expect(dialog.getByText('0.00001×')).toBeVisible()
+  for (const [language, expected] of [
+    ['zhCN', '0.00001×'],
+    ['zhTW', '0.00001×'],
+    ['en', '0.00001×'],
+    ['fr', '0,00001×'],
+    ['ru', '0,00001×'],
+    ['ja', '0.00001×'],
+    ['vi', '0,00001×'],
+    ['invalid-interface-language', '0.00001×'],
+  ]) {
+    act(() => {
+      void i18n.changeLanguage(language)
+    })
+    expect(await screen.findByText(expected)).toBeVisible()
+  }
+  expect(dialog.queryByText('0.0000×')).not.toBeInTheDocument()
 })
 
 test('quota saturation remains first and only billing adds to the counter', () => {

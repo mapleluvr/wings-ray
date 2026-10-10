@@ -30,7 +30,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
@@ -86,6 +86,7 @@ import {
   generateTaskExprFromConfig,
 } from '@/features/pricing/lib/task-expr'
 import type { BillingUsageSchema } from '@/features/pricing/types'
+import { tryJsonParse } from '@/features/system-settings/utils/json-parser'
 import { useDebounce } from '@/hooks/use-debounce'
 import { handleServerError } from '@/lib/handle-server-error'
 import { cn } from '@/lib/utils'
@@ -266,6 +267,8 @@ export const ModelPricingEditorPanel = forwardRef<
     resolver: zodResolver(createModelPricingSchema(t)),
     defaultValues: {
       name: '',
+      subscriptionMultiplier: '',
+      walletMultiplier: '',
       price: '',
       ratio: '',
       cacheRatio: '',
@@ -276,7 +279,9 @@ export const ModelPricingEditorPanel = forwardRef<
       audioCompletionRatio: '',
     },
   })
-  const watchedValues = form.watch()
+  const watchedValues = useWatch({
+    control: form.control,
+  }) as ModelPricingFormValues
   let previewRequest = ''
   if (pricingMode === 'per-token' && watchedValues.name.trim()) {
     try {
@@ -294,7 +299,13 @@ export const ModelPricingEditorPanel = forwardRef<
   const debouncedPreviewRequest = useDebounce(previewRequest, 250)
   const pricePreview = useQuery({
     queryKey: ['model-pricing-preview', debouncedPreviewRequest],
-    queryFn: () => previewModelPricing(JSON.parse(debouncedPreviewRequest)),
+    queryFn: () => {
+      const parsed = tryJsonParse<Parameters<typeof previewModelPricing>[0]>(
+        debouncedPreviewRequest
+      )
+      if (!parsed.success) throw new Error(parsed.error)
+      return previewModelPricing(parsed.data)
+    },
     enabled:
       Boolean(debouncedPreviewRequest) &&
       debouncedPreviewRequest === previewRequest,
@@ -358,6 +369,8 @@ export const ModelPricingEditorPanel = forwardRef<
     if (editData) {
       form.reset({
         name: editData.name,
+        subscriptionMultiplier: editData.subscriptionMultiplier ?? '',
+        walletMultiplier: editData.walletMultiplier ?? '',
         price: editData.price || '',
         ratio: editData.ratio || '',
         cacheRatio: editData.cacheRatio || '',
@@ -373,6 +386,8 @@ export const ModelPricingEditorPanel = forwardRef<
     } else {
       form.reset({
         name: '',
+        subscriptionMultiplier: '',
+        walletMultiplier: '',
         price: '',
         ratio: '',
         cacheRatio: '',
@@ -679,6 +694,8 @@ export const ModelPricingEditorPanel = forwardRef<
     (values: ModelPricingFormValues) => {
       const data: ModelRatioData = {
         name: values.name.trim(),
+        subscriptionMultiplier: values.subscriptionMultiplier ?? '',
+        walletMultiplier: values.walletMultiplier ?? '',
         ...(editData?.pluginBillingExpr ||
         pluginVariants?.length ||
         Object.keys(pluginExpressions).length
@@ -908,6 +925,43 @@ export const ModelPricingEditorPanel = forwardRef<
                 )}
 
                 <PricingCurrencySelector siteCurrency={siteCurrency} />
+
+                <Field>
+                  <FieldLabel>{t('Funding-source multipliers')}</FieldLabel>
+                  <FieldDescription>
+                    {t(
+                      'Applies to HTTP/SSE text token expression pricing. Blank uses 1×; channel usage keeps list price.'
+                    )}
+                  </FieldDescription>
+                  <div className='grid gap-3 sm:grid-cols-2'>
+                    {(
+                      ['subscriptionMultiplier', 'walletMultiplier'] as const
+                    ).map((name) => (
+                      <FormField
+                        key={name}
+                        control={form.control}
+                        name={name}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              {name === 'subscriptionMultiplier'
+                                ? t('Subscription multiplier')
+                                : t('Wallet multiplier')}
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                inputMode='decimal'
+                                placeholder='1'
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    ))}
+                  </div>
+                </Field>
 
                 <TaskPluginPricingEditor
                   key={`${editorReloadToken}:${watchedValues.name}`}

@@ -84,6 +84,10 @@ export function RequestSimulation(props: RequestSimulationProps) {
   )
   const usesImageCount =
     compiled.status === 'ready' && compiled.variables.has('image_count')
+  const [meteringMode, setMeteringMode] = useState('unverified')
+  const meteringId = useId()
+  const usesOutputPositions =
+    compiled.status === 'ready' && compiled.functions.has('output_before')
   const booleanFields = Object.entries(props.usageSchema ?? {}).filter(
     ([, field]) => field.type === 'boolean'
   )
@@ -172,6 +176,10 @@ export function RequestSimulation(props: RequestSimulationProps) {
     return evaluateBillingExpression(props.expression, {
       imageCount: Number(imageCount),
       tokens: props.tokens,
+      metering: {
+        inputLengthVerified: meteringMode !== 'unverified',
+        outputSequenceVerified: meteringMode === 'sequence',
+      },
       usage,
       now,
       request: {
@@ -181,16 +189,15 @@ export function RequestSimulation(props: RequestSimulationProps) {
     })
   }, [
     open,
+    meteringMode,
     imageCount,
     body,
     headers,
     timeMode,
     fixedTime,
     liveTime,
-    props.expression,
-    props.tokens,
+    props,
     usage,
-    props.usageSchema,
   ])
 
   let error = ''
@@ -310,6 +317,45 @@ export function RequestSimulation(props: RequestSimulationProps) {
             />
           </div>
         </div>
+        {usesOutputPositions && (
+          <Field>
+            <FieldLabel htmlFor={meteringId}>
+              {t('Simulated output evidence')}
+            </FieldLabel>
+            <Select
+              value={meteringMode}
+              onValueChange={(value) => value && setMeteringMode(value)}
+              items={[
+                { value: 'unverified', label: t('Unverified counts') },
+                { value: 'input', label: t('Verified input length only') },
+                {
+                  value: 'sequence',
+                  label: t('Verified single output sequence'),
+                },
+              ]}
+            >
+              <SelectTrigger id={meteringId}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='unverified'>
+                  {t('Unverified counts')}
+                </SelectItem>
+                <SelectItem value='input'>
+                  {t('Verified input length only')}
+                </SelectItem>
+                <SelectItem value='sequence'>
+                  {t('Verified single output sequence')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <FieldDescription>
+              {t(
+                'Simulation scenarios do not verify real provider metering capability'
+              )}
+            </FieldDescription>
+          </Field>
+        )}
         <Field>
           <FieldLabel htmlFor={timeId}>{t('Simulation time')}</FieldLabel>
           <Select

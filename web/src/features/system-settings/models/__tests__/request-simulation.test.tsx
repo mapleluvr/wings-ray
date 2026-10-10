@@ -31,6 +31,35 @@ const requestExpression =
 afterEach(() => vi.useRealTimers())
 
 describe('request simulation', () => {
+  test('shows conservative output by default and labels artificial verified scenarios', async () => {
+    const user = userEvent.setup()
+    render(
+      <RequestSimulation
+        expression='tier("output", output_before(256000) * 6 + (c - output_before(256000)) * 12)'
+        tokens={{ len: 255000, c: 3000 }}
+        mode='token'
+        currency={USD_PRICING_CURRENCY}
+      />
+    )
+    await user.click(screen.getByRole('button', { name: 'Request simulation' }))
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Simulated request cost: $0.018'
+    )
+    expect(
+      screen.getByText(
+        'Simulation scenarios do not verify real provider metering capability'
+      )
+    ).toBeVisible()
+    await user.click(
+      screen.getByRole('combobox', { name: 'Simulated output evidence' })
+    )
+    await user.click(
+      screen.getByRole('option', { name: 'Verified single output sequence' })
+    )
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Simulated request cost: $0.03'
+    )
+  })
   test('explains absent task usage instead of showing a token estimator syntax error', () => {
     render(
       <TieredPricingEditor

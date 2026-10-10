@@ -28,6 +28,64 @@ import {
 } from '../pricing'
 
 describe('shared model pricing', () => {
+  it('round-trips independent funding overrides and rejects invalid multipliers', () => {
+    const values = {
+      'billing_setting.billing_mode': 'tiered_expr',
+      'billing_setting.billing_expr': 'tier("base", p * 2)',
+      'billing_setting.subscription_multiplier': 0.5,
+      'billing_setting.wallet_multiplier': 1.5,
+    }
+    expect(pricingFromDraft(pricingRow('example', values))).toEqual(values)
+    for (const value of ['0', '-1', 'NaN', 'Infinity', 'invalid']) {
+      expect(() =>
+        pricingFromDraft({ name: 'example', subscriptionMultiplier: value })
+      ).toThrow()
+    }
+    expect(
+      pricingFromDraft({
+        name: 'example',
+        subscriptionMultiplier: '0.5',
+        walletMultiplier: '',
+      })
+    ).toHaveProperty('billing_setting.subscription_multiplier', 0.5)
+    expect(
+      pricingFromDraft({
+        name: 'example',
+        subscriptionMultiplier: '0.5',
+        walletMultiplier: '',
+      })
+    ).not.toHaveProperty('billing_setting.wallet_multiplier')
+  })
+
+  it('retains local funding overrides during sync and batch price copy', () => {
+    const options = pricingOptions({
+      'billing_setting.subscription_multiplier': '{"source":0.5,"target":1.5}',
+      'billing_setting.wallet_multiplier': '{"target":0.9}',
+    })
+    const synced = applyPriceSyncSelections(options, {
+      target: { model_price: 2 },
+    })
+    expect(synced['billing_setting.wallet_multiplier']).toEqual(
+      options['billing_setting.wallet_multiplier']
+    )
+    const copied = applyPricingDraft(
+      options,
+      {
+        name: 'source',
+        billingMode: 'per-request',
+        price: '2',
+        subscriptionMultiplier: '0.7',
+      },
+      ['source', 'target']
+    )
+    expect(
+      JSON.parse(copied['billing_setting.subscription_multiplier'])
+    ).toEqual({ source: 0.7, target: 1.5 })
+    expect(copied['billing_setting.wallet_multiplier']).toEqual(
+      options['billing_setting.wallet_multiplier']
+    )
+  })
+
   it('preserves explicit zero prices and cache-write configuration', () => {
     expect(
       pricingFromDraft({
@@ -138,7 +196,11 @@ describe('shared model pricing', () => {
   it('rejects invalid prices instead of silently coercing them', () => {
     for (const price of ['-1', 'NaN', 'Infinity', 'invalid']) {
       expect(() =>
-        pricingFromDraft({ name: 'example', billingMode: 'per-request', price })
+        pricingFromDraft({
+          name: 'example',
+          billingMode: 'per-request',
+          price,
+        })
       ).toThrow()
     }
   })

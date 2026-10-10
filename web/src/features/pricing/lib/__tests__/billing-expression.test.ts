@@ -47,6 +47,49 @@ import {
   type ExtraTokenValues,
 } from '../tier-expr'
 
+test.each([
+  {
+    name: 'verified crossing',
+    inputVerified: true,
+    outputVerified: true,
+    input: 255000,
+    want: 30000,
+  },
+  {
+    name: 'unverified crossing',
+    inputVerified: true,
+    outputVerified: false,
+    input: 255000,
+    want: 18000,
+  },
+  {
+    name: 'confirmed all after',
+    inputVerified: true,
+    outputVerified: false,
+    input: 256000,
+    want: 36000,
+  },
+  {
+    name: 'unknown input',
+    inputVerified: false,
+    outputVerified: false,
+    input: 256000,
+    want: 18000,
+  },
+])('simulates output positions with $name', (scenario) => {
+  const result = evaluateBillingExpression(
+    `tier("output", output_before(256000) * 6 + (c - output_before(256000)) * 12)`,
+    {
+      tokens: { len: scenario.input, c: 3000 },
+      metering: {
+        inputLengthVerified: scenario.inputVerified,
+        outputSequenceVerified: scenario.outputVerified,
+      },
+    }
+  )
+  expect(result).toMatchObject({ status: 'success', cost: scenario.want })
+})
+
 const extras: ExtraTokenValues = {
   cacheReadTokens: 100,
   cacheCreateTokens: 0,

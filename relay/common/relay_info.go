@@ -81,6 +81,21 @@ type TokenCountMeta struct {
 	estimatePromptTokens int
 }
 
+type FundingPricing struct {
+	Version                int     `json:"version"`
+	ModelName              string  `json:"model_name"`
+	SubscriptionMultiplier float64 `json:"-"`
+	WalletMultiplier       float64 `json:"-"`
+	Multiplier             float64 `json:"multiplier"`
+	Source                 string  `json:"source"`
+	ListQuota              int     `json:"list_quota"`
+	DueQuota               int     `json:"due_quota"`
+	ChargedQuota           int     `json:"charged_quota"`
+	FundingStatus          string  `json:"funding_status"`
+	TokenStatus            string  `json:"token_status"`
+	Basis                  string  `json:"basis"`
+}
+
 type RelayInfo struct {
 	TokenId           int
 	TokenKey          string
@@ -140,6 +155,9 @@ type RelayInfo struct {
 	// Billing 是计费会话，封装了预扣费/结算/退款的统一生命周期。
 	// 初始免费组可为 nil；若 auto 重试切换到付费组，会在发送前创建。
 	Billing BillingSettler
+	// FundingPricing is present only for eligible text token expressions. Both
+	// policies are captured together with the expression before selecting funds.
+	FundingPricing *FundingPricing
 	// BillingSource indicates whether this request is billed from wallet quota or subscription.
 	// "" or "wallet" => wallet; "subscription" => subscription
 	BillingSource string

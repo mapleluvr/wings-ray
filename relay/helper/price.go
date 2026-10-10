@@ -2,6 +2,7 @@ package helper
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -9,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -80,8 +82,9 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	groupRatioInfo := HandleGroupRatio(c, info)
 
 	// Check if this model uses tiered_expr billing
-	if billing_setting.GetBillingMode(billingModelName) == billing_setting.BillingModeTieredExpr {
-		return modelPriceHelperTiered(c, info, billingModelName, promptTokens, groupRatioInfo)
+	billingConfig := billing_setting.GetModelBillingConfig(billingModelName)
+	if billingConfig.Mode == billing_setting.BillingModeTieredExpr {
+		return modelPriceHelperTiered(c, info, billingModelName, promptTokens, groupRatioInfo, billingConfig)
 	}
 
 	var preConsumedQuota int
@@ -339,9 +342,9 @@ func resolveBillingModelName(origin string) string {
 	return matched
 }
 
-func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billingModelName string, promptTokens int, groupRatioInfo hosttypes.GroupRatioInfo) (hosttypes.PriceData, error) {
-	exprStr, ok := billing_setting.GetBillingExpr(billingModelName)
-	if !ok {
+func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billingModelName string, promptTokens int, groupRatioInfo hosttypes.GroupRatioInfo, billingConfig billing_setting.ModelBillingConfig) (hosttypes.PriceData, error) {
+	exprStr := billingConfig.Expression
+	if strings.TrimSpace(exprStr) == "" {
 		return hosttypes.PriceData{}, fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", billingModelName)
 	}
 	exprHash := billingexpr.ExprHashString(exprStr)
@@ -414,6 +417,60 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billing
 	}
 	info.TieredBillingSnapshot = snapshot
 	info.BillingRequestInput = &requestInput
+
+	// Scope the policy to text token expressions. Fixed, task, audio, image
+	// and Realtime prices keep their existing reservation/settlement contract.
+	textMode := false
+	switch info.RelayMode {
+	case relayconstant.RelayModeChatCompletions, relayconstant.RelayModeCompletions,
+		relayconstant.RelayModeResponses, relayconstant.RelayModeResponsesCompact, relayconstant.RelayModeGemini:
+		textMode = true
+	}
+	// Audio dispatch may use p/c even when the expression has no ai/ao.
+	// Exclude known audio models and explicit audio requests before admission.
+	audioRequest := strings.HasPrefix(info.OriginModelName, "gpt-4o-audio") ||
+		ratio_setting.ContainsAudioRatio(info.OriginModelName) || ratio_setting.ContainsAudioCompletionRatio(info.OriginModelName)
+	if request, ok := info.Request.(*dto.GeneralOpenAIRequest); ok {
+		var modalities []string
+		if len(request.Modalities) > 0 {
+			if err := common.Unmarshal(request.Modalities, &modalities); err != nil {
+				audioRequest = true
+			}
+		}
+		audioRequest = audioRequest || slices.Contains(modalities, "audio") ||
+			(len(request.Audio) > 0 && string(request.Audio) != "null")
+		for _, message := range request.Messages {
+			for _, content := range message.ParseContent() {
+				if content.Type == "input_audio" || content.Type == "audio_url" {
+					audioRequest = true
+				}
+			}
+		}
+	}
+	if request, ok := info.Request.(*dto.GeminiChatRequest); ok {
+		for _, modality := range request.GenerationConfig.ResponseModalities {
+			audioRequest = audioRequest || strings.EqualFold(modality, "audio")
+		}
+		for _, content := range request.Contents {
+			for _, part := range content.Parts {
+				if part.InlineData != nil {
+					audioRequest = audioRequest || strings.HasPrefix(strings.ToLower(part.InlineData.MimeType), "audio/")
+				}
+				if part.FileData != nil {
+					audioRequest = audioRequest || strings.HasPrefix(strings.ToLower(part.FileData.MimeType), "audio/")
+				}
+			}
+		}
+	}
+	if textMode && !audioRequest && info.ClientWs == nil && info.RelayFormat != types.RelayFormatOpenAIRealtime && billing_setting.IsTextTokenExpression(exprStr) {
+		info.FundingPricing = &relaycommon.FundingPricing{
+			Version: 1, Multiplier: 1,
+			ModelName:              billingModelName,
+			SubscriptionMultiplier: billingConfig.SubscriptionMultiplier,
+			WalletMultiplier:       billingConfig.WalletMultiplier,
+			FundingStatus:          "reserved", TokenStatus: "reserved", Basis: "actual",
+		}
+	}
 
 	priceData := hosttypes.PriceData{
 		FreeModel:         freeModel,

@@ -87,6 +87,8 @@ type ModelRatioVisualEditorProps = {
   savedBillingMode: string
   savedBillingExpr: string
   savedPluginBillingExpr?: string
+  savedSubscriptionMultiplier?: string
+  savedWalletMultiplier?: string
   modelPrice: string
   modelRatio: string
   cacheRatio: string
@@ -98,6 +100,8 @@ type ModelRatioVisualEditorProps = {
   billingMode: string
   billingExpr: string
   pluginBillingExpr?: string
+  subscriptionMultiplier?: string
+  walletMultiplier?: string
   candidateModelNames?: string[]
   candidateModelsLoading?: boolean
   filterMode?: 'all' | 'unset'
@@ -128,6 +132,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
     savedBillingMode,
     savedBillingExpr,
     savedPluginBillingExpr = '{}',
+    savedSubscriptionMultiplier = '{}',
+    savedWalletMultiplier = '{}',
     modelPrice,
     modelRatio,
     cacheRatio,
@@ -139,6 +145,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
     billingMode,
     billingExpr,
     pluginBillingExpr = '{}',
+    subscriptionMultiplier = '{}',
+    walletMultiplier = '{}',
     candidateModelNames,
     candidateModelsLoading,
     filterMode = 'all',
@@ -240,6 +248,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingMode: savedBillingMode,
       billingExpr: savedBillingExpr,
       pluginBillingExpr: savedPluginBillingExpr,
+      subscriptionMultiplier: savedSubscriptionMultiplier,
+      walletMultiplier: savedWalletMultiplier,
     })
     const draftRows = buildModelSnapshots({
       modelPrice,
@@ -253,6 +263,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingMode,
       billingExpr,
       pluginBillingExpr,
+      subscriptionMultiplier,
+      walletMultiplier,
     })
 
     const savedByName = new Map(savedRows.map((row) => [row.name, row]))
@@ -297,6 +309,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
     savedBillingMode,
     savedBillingExpr,
     savedPluginBillingExpr,
+    savedSubscriptionMultiplier,
+    savedWalletMultiplier,
     modelPrice,
     modelRatio,
     cacheRatio,
@@ -308,6 +322,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
     billingMode,
     billingExpr,
     pluginBillingExpr,
+    subscriptionMultiplier,
+    walletMultiplier,
   ])
 
   const modeCounts = useMemo(() => {
@@ -358,6 +374,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
         billingExpr: editableModel.billingExpr,
         pluginBillingExpr: editableModel.pluginBillingExpr,
         requestRuleExpr: editableModel.requestRuleExpr,
+        subscriptionMultiplier: editableModel.subscriptionMultiplier,
+        walletMultiplier: editableModel.walletMultiplier,
       })
       setEditorOpen(true)
       if (isMobile) setSheetOpen(true)
@@ -429,6 +447,16 @@ const ModelRatioVisualEditorComponent = forwardRef<
         { fallback: {}, silent: true }
       )
 
+      for (const [key, raw] of [
+        ['billing_setting.subscription_multiplier', subscriptionMultiplier],
+        ['billing_setting.wallet_multiplier', walletMultiplier],
+      ]) {
+        const entries = safeJsonParse<Record<string, number>>(raw, {
+          fallback: {},
+        })
+        delete entries[name]
+        onChange(key, JSON.stringify(entries))
+      }
       delete priceMap[name]
       delete ratioMap[name]
       delete cacheMap[name]
@@ -491,6 +519,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingMode,
       billingExpr,
       pluginBillingExpr,
+      subscriptionMultiplier,
+      walletMultiplier,
       onChange,
     ]
   )
@@ -554,6 +584,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
         BillingMode: billingMode,
         BillingExpr: billingExpr,
         PluginBillingExpr: pluginBillingExpr,
+        SubscriptionMultiplier: subscriptionMultiplier,
+        WalletMultiplier: walletMultiplier,
       })
       const updated = applyPricingDraft(options, data, targetNames)
       for (const [key, value] of Object.entries(updated)) onChange(key, value)
@@ -570,6 +602,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingMode,
       billingExpr,
       pluginBillingExpr,
+      subscriptionMultiplier,
+      walletMultiplier,
       onChange,
     ]
   )
@@ -834,6 +868,9 @@ export const ModelRatioVisualEditor = memo(
       prevProps.savedBillingMode === nextProps.savedBillingMode &&
       prevProps.savedBillingExpr === nextProps.savedBillingExpr &&
       prevProps.savedPluginBillingExpr === nextProps.savedPluginBillingExpr &&
+      prevProps.savedSubscriptionMultiplier ===
+        nextProps.savedSubscriptionMultiplier &&
+      prevProps.savedWalletMultiplier === nextProps.savedWalletMultiplier &&
       prevProps.modelPrice === nextProps.modelPrice &&
       prevProps.modelRatio === nextProps.modelRatio &&
       prevProps.cacheRatio === nextProps.cacheRatio &&
@@ -845,6 +882,8 @@ export const ModelRatioVisualEditor = memo(
       prevProps.billingMode === nextProps.billingMode &&
       prevProps.billingExpr === nextProps.billingExpr &&
       prevProps.pluginBillingExpr === nextProps.pluginBillingExpr &&
+      prevProps.subscriptionMultiplier === nextProps.subscriptionMultiplier &&
+      prevProps.walletMultiplier === nextProps.walletMultiplier &&
       prevProps.candidateModelNames === nextProps.candidateModelNames &&
       prevProps.candidateModelsLoading === nextProps.candidateModelsLoading &&
       prevProps.filterMode === nextProps.filterMode &&

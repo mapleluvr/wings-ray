@@ -20,17 +20,22 @@ type RequestInput struct {
 // Fields beyond P and C are optional — when absent they default to 0,
 // which means cache-unaware expressions keep working unchanged.
 type TokenParams struct {
-	P     float64 // prompt tokens (text) — auto-excludes sub-categories priced separately
-	C     float64 // completion tokens (text) — auto-excludes sub-categories priced separately
-	Len   float64 // total input context length for tier conditions (non-Claude: raw prompt_tokens; Claude: text + cache read + cache creation)
-	CR    float64 // cache read (hit) tokens
-	CC    float64 // cache creation tokens (5-min TTL for Claude, generic for others)
-	CC1h  float64 // cache creation tokens — 1-hour TTL (Claude only)
-	Img   float64 // image input tokens
-	ImgCR float64 // image cache read tokens, separated only when explicitly priced
-	ImgO  float64 // image output tokens
-	AI    float64 // audio input tokens
-	AO    float64 // audio output tokens
+	// Verified position facts are host-owned, never deserialized from client
+	// parameters or inferred from aggregate/local estimates. Zero values select
+	// conservative output pricing in opt-in expressions.
+	InputLengthVerified    bool    `json:"-"`
+	OutputSequenceVerified bool    `json:"-"`
+	P                      float64 // prompt tokens (text) — auto-excludes sub-categories priced separately
+	C                      float64 // completion tokens (text) — auto-excludes sub-categories priced separately
+	Len                    float64 // total input context length for tier conditions (non-Claude: raw prompt_tokens; Claude: text + cache read + cache creation)
+	CR                     float64 // cache read (hit) tokens
+	CC                     float64 // cache creation tokens (5-min TTL for Claude, generic for others)
+	CC1h                   float64 // cache creation tokens — 1-hour TTL (Claude only)
+	Img                    float64 // image input tokens
+	ImgCR                  float64 // image cache read tokens, separated only when explicitly priced
+	ImgO                   float64 // image output tokens
+	AI                     float64 // audio input tokens
+	AO                     float64 // audio output tokens
 }
 
 // RequestRuleTrace describes one request-dependent multiplier detected at compile time.

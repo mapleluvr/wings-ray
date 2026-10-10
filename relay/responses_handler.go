@@ -83,11 +83,15 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		originModelName := info.OriginModelName
 		originPriceData := info.PriceData
 
-		_, err := helper.ModelPriceHelper(c, info, info.GetEstimatePromptTokens(), &types.TokenCountMeta{})
-		if err != nil {
-			info.OriginModelName = originModelName
-			info.PriceData = originPriceData
-			return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry(), types.ErrOptionWithStatusCode(http.StatusBadRequest))
+		// Token expressions were frozen before reservation. Compact's second
+		// price lookup is only needed for its legacy per-request pricing.
+		if info.TieredBillingSnapshot == nil {
+			_, err := helper.ModelPriceHelper(c, info, info.GetEstimatePromptTokens(), &types.TokenCountMeta{})
+			if err != nil {
+				info.OriginModelName = originModelName
+				info.PriceData = originPriceData
+				return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry(), types.ErrOptionWithStatusCode(http.StatusBadRequest))
+			}
 		}
 		service.PostTextConsumeQuota(c, info, usageDto, nil)
 

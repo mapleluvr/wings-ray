@@ -33,9 +33,10 @@ func init() {
 }
 
 func InitBatchUpdater() {
+	interval := time.Duration(common.BatchUpdateInterval) * time.Second
 	gopool.Go(func() {
 		for {
-			time.Sleep(time.Duration(common.BatchUpdateInterval) * time.Second)
+			time.Sleep(interval)
 			batchUpdate()
 		}
 	})

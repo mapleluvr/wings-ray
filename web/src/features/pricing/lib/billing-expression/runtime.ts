@@ -21,6 +21,7 @@ import {
   BillingExpressionError,
   TIME_FUNCTIONS,
   expressionFailure,
+  type BillingParameterValue,
   type BillingEvaluationResult,
   type BillingRequestRule,
   type BillingSimulationContext,
@@ -32,7 +33,10 @@ import {
 type RuntimeValue = { value: unknown; integer?: boolean }
 
 /** The supported, deterministic subset of GJSON paths (not JavaScript property access). */
-export function readRequestPath(body: unknown, rawPath: string): unknown {
+export function readRequestPath(
+  body: unknown,
+  rawPath: string
+): BillingParameterValue {
   const path = rawPath.trim()
   if (!path) return null
   const parts: string[] = []
@@ -76,7 +80,17 @@ export function readRequestPath(body: unknown, rawPath: string): unknown {
       return null
     }
   }
-  return value ?? null
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'object'
+  ) {
+    return value
+  }
+  // JavaScript-only values cannot originate from a JSON request body.
+  return null
 }
 
 /** Match fmt.Sprint for JSON values passed to the backend's has() helper. */
@@ -422,6 +436,37 @@ class BillingRuntime {
   private call(node: Extract<ExpressionNode, { kind: 'call' }>): RuntimeValue {
     const args = node.args
     switch (node.name) {
+      case 'output_before': {
+        const threshold = this.numeric(args[0]).value
+        const input = this.context.tokens?.len
+        const output = this.context.tokens?.c
+        if (input === undefined || output === undefined) {
+          throw new BillingExpressionError({
+            code: 'missing_context',
+            detail: 'output positions',
+            position: node.start,
+          })
+        }
+        if (
+          ![threshold, input, output].every(
+            (value) => Number.isFinite(value) && value >= 0
+          )
+        ) {
+          throw new BillingExpressionError({
+            code: 'number',
+            detail: 'output positions',
+            position: node.start,
+          })
+        }
+        const facts = this.context.metering
+        if (facts?.inputLengthVerified && input >= threshold) {
+          return { value: 0 }
+        }
+        if (facts?.inputLengthVerified && facts.outputSequenceVerified) {
+          return { value: Math.min(output, Math.max(threshold - input, 0)) }
+        }
+        return { value: output }
+      }
       case 'fixed': {
         const amount = this.numeric(args[0]).value
         this.billingUnit = 'request'

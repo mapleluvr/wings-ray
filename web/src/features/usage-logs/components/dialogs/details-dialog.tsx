@@ -62,6 +62,7 @@ import { BILLING_PRICING_VARS } from '@/features/pricing/lib/billing-expr'
 import { pluginUsageSchema } from '@/features/pricing/lib/plugin-pricing'
 import { PolicyDecisionRecord } from '@/features/system-settings/request-policies/decision-record'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { toIntlLocale } from '@/i18n/languages'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -167,7 +168,7 @@ function BillingBreakdown(props: {
   other: LogOtherData
   isAdmin: boolean
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { log, other, isAdmin } = props
   const isPerCall = isPerCallBilling(other.model_price)
   const isClaude = other.claude === true
@@ -225,6 +226,39 @@ function BillingBreakdown(props: {
         value: `${fmtPrice(baseInputUSD * other.completion_ratio)}/M`,
       })
     }
+  }
+
+  if (other.funding_pricing) {
+    const funding = other.funding_pricing
+    rows.push(
+      {
+        label: t('Channel list-price usage'),
+        value: formatLogQuota(funding.list_quota),
+      },
+      {
+        label: t('Funding multiplier'),
+        value: `${new Intl.NumberFormat(toIntlLocale(i18n.language), { maximumSignificantDigits: 15 }).format(funding.multiplier)}×`,
+      },
+      { label: t('Amount due'), value: formatLogQuota(funding.due_quota) },
+      {
+        label: t('Actual charge'),
+        value: formatLogQuota(funding.charged_quota),
+      },
+      {
+        label: t('Funding settlement'),
+        value:
+          funding.funding_status === 'settled'
+            ? t('Settled')
+            : t('Partial charge'),
+      },
+      {
+        label: t('API key settlement'),
+        value:
+          funding.token_status === 'settled'
+            ? t('Settled')
+            : t('Settlement failed'),
+      }
+    )
   }
 
   const userGR = other.user_group_ratio

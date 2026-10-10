@@ -36,6 +36,7 @@ const (
 var (
 	ErrSubscriptionOrderNotFound      = errors.New("subscription order not found")
 	ErrSubscriptionOrderStatusInvalid = errors.New("subscription order status invalid")
+	ErrSubscriptionPeriodChanged      = errors.New("subscription period changed since reservation")
 )
 
 const (
@@ -1134,6 +1135,7 @@ type SubscriptionPreConsumeResult struct {
 	AmountTotal        int64
 	AmountUsedBefore   int64
 	AmountUsedAfter    int64
+	LastResetTime      int64
 }
 
 // ExpireDueSubscriptions marks expired subscriptions and handles group downgrade.
@@ -1323,6 +1325,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 			if err := tx.Where("id = ?", existing.UserSubscriptionId).First(&sub).Error; err != nil {
 				return err
 			}
+			returnValue.LastResetTime = sub.LastResetTime
 			returnValue.UserSubscriptionId = sub.Id
 			returnValue.PreConsumed = existing.PreConsumed
 			returnValue.AmountTotal = sub.AmountTotal
@@ -1370,6 +1373,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 					if dup.Status == "refunded" {
 						return errors.New("subscription pre-consume already refunded")
 					}
+					returnValue.LastResetTime = sub.LastResetTime
 					returnValue.UserSubscriptionId = sub.Id
 					returnValue.PreConsumed = dup.PreConsumed
 					returnValue.AmountTotal = sub.AmountTotal
@@ -1383,6 +1387,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 			if err := tx.Save(&sub).Error; err != nil {
 				return err
 			}
+			returnValue.LastResetTime = sub.LastResetTime
 			returnValue.UserSubscriptionId = sub.Id
 			returnValue.PreConsumed = amount
 			returnValue.AmountTotal = sub.AmountTotal
@@ -1399,7 +1404,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 }
 
 // RefundSubscriptionPreConsume is idempotent and refunds pre-consumed subscription quota by requestId.
-func RefundSubscriptionPreConsume(requestId string) error {
+func RefundSubscriptionPreConsume(requestId string, expectedReset ...int64) error {
 	if strings.TrimSpace(requestId) == "" {
 		return errors.New("requestId is empty")
 	}
@@ -1416,8 +1421,17 @@ func RefundSubscriptionPreConsume(requestId string) error {
 			record.Status = "refunded"
 			return tx.Save(&record).Error
 		}
-		if err := PostConsumeUserSubscriptionDelta(record.UserSubscriptionId, -record.PreConsumed); err != nil {
+		var sub UserSubscription
+		if err := lockForUpdate(tx).Where("id = ?", record.UserSubscriptionId).First(&sub).Error; err != nil {
 			return err
+		}
+		// An expired period cannot credit the new period's allowance. Mark the
+		// old reservation refunded atomically without touching the new balance.
+		if len(expectedReset) == 0 || sub.LastResetTime == expectedReset[0] {
+			sub.AmountUsed = max(sub.AmountUsed-record.PreConsumed, 0)
+			if err := tx.Save(&sub).Error; err != nil {
+				return err
+			}
 		}
 		record.Status = "refunded"
 		return tx.Save(&record).Error
@@ -1507,7 +1521,7 @@ func GetSubscriptionPlanInfoByUserSubscriptionId(userSubscriptionId int) (*Subsc
 }
 
 // Update subscription used amount by delta (positive consume more, negative refund).
-func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error {
+func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64, expectedReset ...int64) error {
 	if userSubscriptionId <= 0 {
 		return errors.New("invalid userSubscriptionId")
 	}
@@ -1520,6 +1534,9 @@ func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error
 			Where("id = ?", userSubscriptionId).
 			First(&sub).Error; err != nil {
 			return err
+		}
+		if len(expectedReset) != 0 && sub.LastResetTime != expectedReset[0] {
+			return ErrSubscriptionPeriodChanged
 		}
 		newUsed := max(sub.AmountUsed+delta, 0)
 		if sub.AmountTotal > 0 && newUsed > sub.AmountTotal {

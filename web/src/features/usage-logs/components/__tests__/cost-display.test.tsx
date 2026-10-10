@@ -81,6 +81,31 @@ describe('log cost display', () => {
     }
   )
 
+  test('shows the committed charge and partial status from funding metadata', () => {
+    renderCost({
+      quota: 16500,
+      other: {
+        billing_source: 'subscription',
+        subscription_consumed: 99000,
+        funding_pricing: {
+          model_name: 'example',
+          source: 'subscription',
+          multiplier: 0.5,
+          list_quota: 99000,
+          due_quota: 49500,
+          charged_quota: 16500,
+          funding_status: 'partial',
+          token_status: 'settled',
+          basis: 'actual',
+        },
+      },
+      showBillingSource: true,
+    })
+    expect(screen.getByText('$0.033')).toBeVisible()
+    expect(screen.getByText('Partial charge')).toBeVisible()
+    expect(screen.queryByText('$0.198')).not.toBeInTheDocument()
+  })
+
   test('shows wallet cost and source icon without using subscription metadata', () => {
     renderCost({
       quota: 5000,
@@ -115,7 +140,9 @@ describe('log cost display', () => {
 
     expect(screen.getByText('$0.025')).toBeVisible()
     expect(screen.getByRole('img', { name: 'Subscription' })).toBeVisible()
-    expect(screen.queryByRole('img', { name: 'Wallet' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('img', { name: 'Wallet' })
+    ).not.toBeInTheDocument()
   })
 
   test('keeps legacy cost visible without inventing a funding source', () => {

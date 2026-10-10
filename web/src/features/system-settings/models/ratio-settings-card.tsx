@@ -128,6 +128,8 @@ const createModelSchema = (t: Translate) =>
     BillingMode: createJsonStringField(t),
     BillingExpr: createJsonStringField(t),
     PluginBillingExpr: createJsonStringField(t),
+    SubscriptionMultiplier: createJsonStringField(t),
+    WalletMultiplier: createJsonStringField(t),
   })
 
 const createGroupSchema = (t: Translate) =>
@@ -157,7 +159,13 @@ type RatioTabId =
   | 'upstream-sync'
 
 type RatioSettingsCardProps = {
-  modelDefaults: ModelFormValues
+  modelDefaults: Omit<
+    ModelFormValues,
+    'SubscriptionMultiplier' | 'WalletMultiplier'
+  > &
+    Partial<
+      Pick<ModelFormValues, 'SubscriptionMultiplier' | 'WalletMultiplier'>
+    >
   groupDefaults: GroupFormValues
   toolPricesDefault: string
   titleKey?: string
@@ -179,11 +187,9 @@ export function RatioSettingsCard({
   const savePricing = useSaveModelPricing()
   const [pricingBaseline, setPricingBaseline] =
     useState<ModelPricingConfig | null>(null)
-  useEffect(() => {
-    if (!pricingBaseline && pricingQuery.data) {
-      setPricingBaseline(pricingQuery.data)
-    }
-  }, [pricingBaseline, pricingQuery.data])
+  if (pricingBaseline === null && pricingQuery.data) {
+    setPricingBaseline(pricingQuery.data)
+  }
   const modelDefaults = useMemo(
     () =>
       pricingBaseline
@@ -196,8 +202,19 @@ export function RatioSettingsCard({
               pricingBaseline.options['billing_setting.billing_expr'],
             PluginBillingExpr:
               pricingBaseline.options['billing_setting.plugin_billing_expr'],
+            SubscriptionMultiplier:
+              pricingBaseline.options[
+                'billing_setting.subscription_multiplier'
+              ],
+            WalletMultiplier:
+              pricingBaseline.options['billing_setting.wallet_multiplier'],
           }
-        : initialModelDefaults,
+        : {
+            ...initialModelDefaults,
+            SubscriptionMultiplier:
+              initialModelDefaults.SubscriptionMultiplier ?? '{}',
+            WalletMultiplier: initialModelDefaults.WalletMultiplier ?? '{}',
+          },
     [initialModelDefaults, pricingBaseline]
   )
   const resetMutation = useMutation({
@@ -221,25 +238,31 @@ export function RatioSettingsCard({
     onError: (error) => handleServerError(error),
   })
 
-  const modelNormalizedDefaults = useRef({
-    ModelPrice: normalizeJsonString(modelDefaults.ModelPrice),
-    ModelRatio: normalizeJsonString(modelDefaults.ModelRatio),
-    CacheRatio: normalizeJsonString(modelDefaults.CacheRatio),
-    CreateCacheRatio: normalizeJsonString(modelDefaults.CreateCacheRatio),
-    CompletionRatio: normalizeJsonString(modelDefaults.CompletionRatio),
-    ImageRatio: normalizeJsonString(modelDefaults.ImageRatio),
-    AudioRatio: normalizeJsonString(modelDefaults.AudioRatio),
-    AudioCompletionRatio: normalizeJsonString(
-      modelDefaults.AudioCompletionRatio
-    ),
-    ExposeRatioEnabled: modelDefaults.ExposeRatioEnabled,
-    BillingMode: normalizeJsonString(modelDefaults.BillingMode),
-    BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
-    PluginBillingExpr: normalizeJsonString(modelDefaults.PluginBillingExpr),
-  })
-  const [savedModelValues, setSavedModelValues] = useState(
-    modelNormalizedDefaults.current
+  const normalizedModelDefaults = useMemo(
+    () => ({
+      ModelPrice: normalizeJsonString(modelDefaults.ModelPrice),
+      ModelRatio: normalizeJsonString(modelDefaults.ModelRatio),
+      CacheRatio: normalizeJsonString(modelDefaults.CacheRatio),
+      CreateCacheRatio: normalizeJsonString(modelDefaults.CreateCacheRatio),
+      CompletionRatio: normalizeJsonString(modelDefaults.CompletionRatio),
+      ImageRatio: normalizeJsonString(modelDefaults.ImageRatio),
+      AudioRatio: normalizeJsonString(modelDefaults.AudioRatio),
+      AudioCompletionRatio: normalizeJsonString(
+        modelDefaults.AudioCompletionRatio
+      ),
+      ExposeRatioEnabled: modelDefaults.ExposeRatioEnabled,
+      BillingMode: normalizeJsonString(modelDefaults.BillingMode),
+      BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
+      PluginBillingExpr: normalizeJsonString(modelDefaults.PluginBillingExpr),
+      SubscriptionMultiplier: normalizeJsonString(
+        modelDefaults.SubscriptionMultiplier
+      ),
+      WalletMultiplier: normalizeJsonString(modelDefaults.WalletMultiplier),
+    }),
+    [modelDefaults]
   )
+  const modelNormalizedDefaults = useRef(normalizedModelDefaults)
+  const savedModelValues = normalizedModelDefaults
 
   const groupNormalizedDefaults = useRef({
     GroupRatio: normalizeJsonString(groupDefaults.GroupRatio),
@@ -294,23 +317,7 @@ export function RatioSettingsCard({
   })
 
   useEffect(() => {
-    modelNormalizedDefaults.current = {
-      ModelPrice: normalizeJsonString(modelDefaults.ModelPrice),
-      ModelRatio: normalizeJsonString(modelDefaults.ModelRatio),
-      CacheRatio: normalizeJsonString(modelDefaults.CacheRatio),
-      CreateCacheRatio: normalizeJsonString(modelDefaults.CreateCacheRatio),
-      CompletionRatio: normalizeJsonString(modelDefaults.CompletionRatio),
-      ImageRatio: normalizeJsonString(modelDefaults.ImageRatio),
-      AudioRatio: normalizeJsonString(modelDefaults.AudioRatio),
-      AudioCompletionRatio: normalizeJsonString(
-        modelDefaults.AudioCompletionRatio
-      ),
-      ExposeRatioEnabled: modelDefaults.ExposeRatioEnabled,
-      BillingMode: normalizeJsonString(modelDefaults.BillingMode),
-      BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
-      PluginBillingExpr: normalizeJsonString(modelDefaults.PluginBillingExpr),
-    }
-    setSavedModelValues(modelNormalizedDefaults.current)
+    modelNormalizedDefaults.current = normalizedModelDefaults
 
     modelForm.reset({
       ...modelDefaults,
@@ -328,7 +335,7 @@ export function RatioSettingsCard({
       BillingExpr: formatJsonForTextarea(modelDefaults.BillingExpr),
       PluginBillingExpr: formatJsonForTextarea(modelDefaults.PluginBillingExpr),
     })
-  }, [modelDefaults, modelForm])
+  }, [modelDefaults, modelForm, normalizedModelDefaults])
 
   useEffect(() => {
     groupNormalizedDefaults.current = {
@@ -372,6 +379,10 @@ export function RatioSettingsCard({
         BillingMode: normalizeJsonString(values.BillingMode),
         BillingExpr: normalizeJsonString(values.BillingExpr),
         PluginBillingExpr: normalizeJsonString(values.PluginBillingExpr),
+        SubscriptionMultiplier: normalizeJsonString(
+          values.SubscriptionMultiplier
+        ),
+        WalletMultiplier: normalizeJsonString(values.WalletMultiplier),
       }
 
       if (!pricingBaseline) return
@@ -398,7 +409,6 @@ export function RatioSettingsCard({
         const refreshed = await pricingQuery.refetch()
         setPricingBaseline(refreshed.data ?? null)
         modelNormalizedDefaults.current = normalized
-        setSavedModelValues(normalized)
         toast.success(t('Model pricing saved'))
       } catch (error) {
         handleServerError(error)

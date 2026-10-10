@@ -67,6 +67,7 @@ var modelPricingOptionKeys = []string{
 	"AudioCompletionRatio", "AudioRatio", "CacheRatio", "CompletionRatio",
 	"CreateCacheRatio", "ImageRatio", "ModelPrice", "ModelRatio",
 	"billing_setting.billing_expr", "billing_setting.billing_mode", billing_setting.PluginBillingExprOption,
+	billing_setting.SubscriptionMultiplierOption, billing_setting.WalletMultiplierOption,
 }
 
 var modelPricingMutationMu sync.Mutex
@@ -456,6 +457,13 @@ func validateModelPricing(name string, values, previous PricingValues) error {
 			}
 			continue
 		}
+		if key == billing_setting.SubscriptionMultiplierOption || key == billing_setting.WalletMultiplierOption {
+			number, ok := value.(float64)
+			if !ok || number <= 0 || math.IsNaN(number) || math.IsInf(number, 0) {
+				return fmt.Errorf("%s must be a finite positive multiplier", key)
+			}
+			continue
+		}
 		number, ok := value.(float64)
 		if !ok || math.IsNaN(number) || math.IsInf(number, 0) || number < 0 {
 			return fmt.Errorf("%s must be a finite, non-negative number", key)
@@ -589,9 +597,22 @@ func mutateModelPricingOptions(mutate func(*gorm.DB, map[string]map[string]any) 
 	if err != nil {
 		return err
 	}
+	options := make(map[string]string, len(committed))
 	for _, key := range modelPricingOptionKeys {
 		encoded, _ := common.Marshal(committed[key])
-		if err := updateOptionMap(key, string(encoded)); err != nil {
+		options[key] = string(encoded)
+	}
+	if err := billing_setting.PublishBillingOptions(options); err != nil {
+		return err
+	}
+	for _, key := range modelPricingOptionKeys {
+		if strings.HasPrefix(key, "billing_setting.") {
+			common.OptionMapRWMutex.Lock()
+			common.OptionMap[key] = options[key]
+			common.OptionMapRWMutex.Unlock()
+			continue
+		}
+		if err := updateOptionMap(key, options[key]); err != nil {
 			return err
 		}
 	}

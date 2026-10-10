@@ -42,6 +42,7 @@ export const TIME_FUNCTIONS = [
 export type TimeFunction = (typeof TIME_FUNCTIONS)[number]
 export const BILLING_FUNCTIONS: Readonly<Record<string, number>> = {
   tier: 2,
+  output_before: 1,
   fixed: 1,
   param: 1,
   header: 1,
@@ -124,7 +125,16 @@ export type ExpressionFailure = {
   diagnostic: ExpressionDiagnostic
 }
 export type CompilationResult = CompiledBillingExpression | ExpressionFailure
+// param() returns JSON scalars or structured values. Operand-specific checks
+// remain in the expression runtime (objects and arrays are valid param values).
+export type BillingParameterValue = string | number | boolean | object | null
+
 export type BillingSimulationContext = {
+  /** Artificial simulator scenarios; they never certify a real provider. */
+  metering?: {
+    inputLengthVerified?: boolean
+    outputSequenceVerified?: boolean
+  }
   imageCount?: number
   /** Already normalized billable counts; no implicit cache subtraction. */
   tokens?: Partial<Record<TokenVariable, number>>
@@ -206,7 +216,13 @@ export function expressionDependencies(node: ExpressionNode): {
   const functions = new Set<string>()
   visitExpression(node, (part) => {
     if (part.kind === 'variable') variables.add(part.name)
-    if (part.kind === 'call') functions.add(part.name)
+    if (part.kind === 'call') {
+      functions.add(part.name)
+      if (part.name === 'output_before') {
+        variables.add('len')
+        variables.add('c')
+      }
+    }
   })
   return { variables, functions }
 }
