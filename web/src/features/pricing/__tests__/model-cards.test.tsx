@@ -231,6 +231,20 @@ describe('model cards', () => {
     ).toBeVisible()
   })
 
+  it('shows the funding deduction badge on the card only when an adjustment is configured', () => {
+    const { rerender } = render(
+      <ModelCard
+        model={pricingModel({ subscription_multiplier: 0.5 })}
+        onClick={vi.fn()}
+      />
+    )
+    expect(screen.getByText('Subscription 0.5× · Recharge 1×')).toBeVisible()
+    rerender(<ModelCard model={pricingModel()} onClick={vi.fn()} />)
+    expect(
+      screen.queryByText(/^Subscription .* Recharge /)
+    ).not.toBeInTheDocument()
+  })
+
   it('omits metadata fields when the model has no groups, endpoints or tags', () => {
     render(
       <ModelCard

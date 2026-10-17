@@ -1539,29 +1539,29 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
                 }}
               />
             )}
-            {props.model.subscription_multiplier !== undefined &&
-              props.model.wallet_multiplier !== undefined && (
-                <div className='grid grid-cols-2 overflow-hidden rounded-lg border'>
-                  <CatalogInfoCell label={t('Subscription multiplier')}>
-                    <span>
-                      {multiplierFormat.format(
-                        props.model.subscription_multiplier
-                      )}
-                      x
-                    </span>
-                  </CatalogInfoCell>
-                  <CatalogInfoCell label={t('Wallet multiplier')}>
-                    <span>
-                      {multiplierFormat.format(props.model.wallet_multiplier)}x
-                    </span>
-                  </CatalogInfoCell>
-                  <p className='text-muted-foreground col-span-2 px-3 pb-3 text-xs'>
-                    {t(
-                      'Funding multipliers apply to eligible HTTP/SSE text-token requests; channel metering uses list price'
-                    )}
-                  </p>
-                </div>
-              )}
+            <div className='grid grid-cols-2 overflow-hidden rounded-lg border'>
+              {/* Always render both sources: the catalog omits unconfigured
+                  entries, and the request path charges an absent source at 1x.
+                  An absent field is therefore NOT the same as an explicit 1x. */}
+              <CatalogInfoCell label={t('Subscription deduction multiplier')}>
+                <span>
+                  {multiplierFormat.format(
+                    props.model.subscription_multiplier ?? 1
+                  )}
+                  ×
+                </span>
+              </CatalogInfoCell>
+              <CatalogInfoCell label={t('Recharge deduction multiplier')}>
+                <span>
+                  {multiplierFormat.format(props.model.wallet_multiplier ?? 1)}×
+                </span>
+              </CatalogInfoCell>
+              <p className='text-muted-foreground col-span-2 px-3 pb-3 text-xs'>
+                {t(
+                  'Model-level deduction policy. Only eligible HTTP/SSE text-token expression requests are adjusted; channel usage always keeps list price.'
+                )}
+              </p>
+            </div>
             <GroupPricingSection
               model={props.model}
               groupRatio={props.groupRatio}

@@ -83,9 +83,11 @@ it('keeps independent funding multipliers across currency changes and clears one
     walletMultiplier: '1.5',
   })
   const subscription = screen.getByRole('textbox', {
-    name: 'Subscription multiplier',
+    name: 'Subscription deduction multiplier',
   })
-  const wallet = screen.getByRole('textbox', { name: 'Wallet multiplier' })
+  const wallet = screen.getByRole('textbox', {
+    name: 'Recharge deduction multiplier',
+  })
   expect(subscription).toHaveValue('0.5')
   expect(wallet).toHaveValue('1.5')
   await selectCurrency('Site currency (CNY)')

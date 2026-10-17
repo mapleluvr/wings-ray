@@ -96,15 +96,15 @@ const modelJsonFields: Array<{
 }> = [
   {
     name: 'SubscriptionMultiplier',
-    labelKey: 'Subscription multiplier',
+    labelKey: 'Subscription deduction multiplier',
     descriptionKey:
-      'Applies to HTTP/SSE text token expression pricing. Blank uses 1×; channel usage keeps list price.',
+      'Applies to eligible HTTP/SSE text-token expression requests only; blank means 1×. Below 1× discounts, above 1× surcharges. Channel usage keeps list price.',
   },
   {
     name: 'WalletMultiplier',
-    labelKey: 'Wallet multiplier',
+    labelKey: 'Recharge deduction multiplier',
     descriptionKey:
-      'Applies to HTTP/SSE text token expression pricing. Blank uses 1×; channel usage keeps list price.',
+      'Applies to eligible HTTP/SSE text-token expression requests only; blank means 1×. Below 1× discounts, above 1× surcharges. Channel usage keeps list price.',
   },
   {
     name: 'ModelPrice',

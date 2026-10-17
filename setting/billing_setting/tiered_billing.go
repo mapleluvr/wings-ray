@@ -128,11 +128,15 @@ func PublishBillingOptions(options map[string]string) error {
 }
 
 // ModelBillingConfig freezes expression and both independent source policies.
+// The Set flags distinguish an explicit entry from the 1x default, which the
+// billing hot path always needs and the public catalog must not publish.
 type ModelBillingConfig struct {
-	Mode                   string
-	Expression             string
-	SubscriptionMultiplier float64
-	WalletMultiplier       float64
+	Mode                      string
+	Expression                string
+	SubscriptionMultiplier    float64
+	SubscriptionMultiplierSet bool
+	WalletMultiplier          float64
+	WalletMultiplierSet       bool
 }
 
 func GetModelBillingConfig(model string) ModelBillingConfig {
@@ -142,9 +146,11 @@ func GetModelBillingConfig(model string) ModelBillingConfig {
 	result.Expression, _ = getBillingExpr(model)
 	if value, ok := billingSetting.SubscriptionMultiplier[model]; ok {
 		result.SubscriptionMultiplier = value
+		result.SubscriptionMultiplierSet = true
 	}
 	if value, ok := billingSetting.WalletMultiplier[model]; ok {
 		result.WalletMultiplier = value
+		result.WalletMultiplierSet = true
 	}
 	return result
 }

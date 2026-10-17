@@ -20,6 +20,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
+import { getSelfSubscriptionFull } from '@/features/subscriptions/api'
+import type { UserSubscription } from '@/features/subscriptions/types'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { getSelf } from '@/lib/api'
@@ -63,6 +65,9 @@ export function Wallet(props: WalletProps) {
   const { t } = useTranslation()
   const [user, setUser] = useState<UserWalletData | null>(null)
   const [userLoading, setUserLoading] = useState(true)
+  const [activeSubscriptions, setActiveSubscriptions] = useState<
+    UserSubscription[]
+  >([])
   const [topupAmount, setTopupAmount] = useState(0)
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null)
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
@@ -109,17 +114,42 @@ export function Wallet(props: WalletProps) {
   const { processing: pancakeProcessing, processWaffoPancakePayment } =
     useWaffoPancakePayment()
 
-  // Fetch and refresh user data
+  // Fetch and refresh user data together with the active subscriptions that
+  // feed the wallet stats; a purchase refreshes both through onPurchaseSuccess.
   const fetchUser = useCallback(async () => {
+    setUserLoading(true)
     try {
-      setUserLoading(true)
-      const response = await getSelf()
-      if (response.success && response.data) {
-        setUser(response.data as UserWalletData)
+      // AllSettled keeps wallet stats from a successful getSelf even when the
+      // subscription endpoint fails; that failure must not render zeros.
+      const [userResult, subscriptionResult] = await Promise.allSettled([
+        getSelf(),
+        getSelfSubscriptionFull(),
+      ])
+      if (userResult.status === 'fulfilled') {
+        const userResponse = userResult.value
+        if (userResponse.success && userResponse.data) {
+          setUser(userResponse.data as UserWalletData)
+        }
+      } else {
+        // eslint-disable-next-line no-console
+        console.error('Failed to fetch user data:', userResult.reason)
       }
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to fetch user data:', error)
+      if (subscriptionResult.status === 'fulfilled') {
+        const subscriptionResponse = subscriptionResult.value
+        if (subscriptionResponse.success && subscriptionResponse.data) {
+          setActiveSubscriptions(
+            (subscriptionResponse.data.subscriptions || []).map(
+              (record) => record.subscription
+            )
+          )
+        }
+      } else {
+        // eslint-disable-next-line no-console
+        console.error(
+          'Failed to fetch subscription usage:',
+          subscriptionResult.reason
+        )
+      }
     } finally {
       setUserLoading(false)
     }
@@ -288,7 +318,11 @@ export function Wallet(props: WalletProps) {
         <SectionPageLayout.Title>{t('Wallet')}</SectionPageLayout.Title>
         <SectionPageLayout.Content>
           <div className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-5'>
-            <WalletStatsCard user={user} loading={userLoading} />
+            <WalletStatsCard
+              user={user}
+              subscriptions={activeSubscriptions}
+              loading={userLoading}
+            />
 
             <div
               className={

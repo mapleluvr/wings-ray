@@ -227,9 +227,11 @@ it.each(['change subscription', 'clear wallet'])(
       await screen.findByRole('region', { name: 'Edit model pricing' })
     )
     const subscription = editor.getByRole('textbox', {
-      name: 'Subscription multiplier',
+      name: 'Subscription deduction multiplier',
     })
-    const wallet = editor.getByRole('textbox', { name: 'Wallet multiplier' })
+    const wallet = editor.getByRole('textbox', {
+      name: 'Recharge deduction multiplier',
+    })
     expect(subscription).toHaveValue('0.5')
     expect(wallet).toHaveValue('1.5')
     expect(

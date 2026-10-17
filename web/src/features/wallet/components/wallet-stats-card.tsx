@@ -16,17 +16,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Activity, BarChart3, WalletCards } from 'lucide-react'
+import { Activity, BarChart3, CalendarClock, WalletCards } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatQuota } from '@/lib/format'
+import type { UserSubscription } from '@/features/subscriptions/types'
+import { formatNumber, formatQuota } from '@/lib/format'
 
 import type { UserWalletData } from '../types'
 
 interface WalletStatsCardProps {
   user: UserWalletData | null
+  /** Active subscriptions of the current user; drives the period usage stat. */
+  subscriptions?: UserSubscription[]
   loading?: boolean
 }
 
@@ -34,8 +37,8 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   const { t } = useTranslation()
   if (props.loading) {
     return (
-      <div className='grid grid-cols-3 divide-x rounded-lg border'>
-        {['balance', 'usage', 'requests'].map((key) => (
+      <div className='grid grid-cols-2 divide-x rounded-lg border sm:grid-cols-4'>
+        {['balance', 'usage', 'requests', 'subscription'].map((key) => (
           <div key={key} className='min-w-0 px-2.5 py-2.5 sm:px-5 sm:py-4'>
             <Skeleton className='h-3.5 w-full' />
             <Skeleton className='mt-2 h-6 w-full sm:h-7' />
@@ -46,6 +49,24 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     )
   }
 
+  const activeSubscriptions = props.subscriptions ?? []
+  const hasUnlimited = activeSubscriptions.some(
+    (subscription) => subscription.amount_total <= 0
+  )
+  // Period usage only: summing per-subscription remainders would invent an
+  // aggregate balance the backend never grants (it charges one subscription
+  // per request, and an unlimited subscription would contribute a negative).
+  const periodUsed = activeSubscriptions.reduce(
+    (sum, subscription) => sum + subscription.amount_used,
+    0
+  )
+  const periodValue = hasUnlimited
+    ? `${formatNumber(periodUsed)} · ${t('Unlimited')}`
+    : formatNumber(periodUsed)
+  const periodDescription = activeSubscriptions.length
+    ? t('Current period; per-subscription remaining is shown in the plans card')
+    : t('No active subscription')
+
   const stats: {
     label: string
     value: string
@@ -54,30 +75,37 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     tone: IconBadgeTone
   }[] = [
     {
-      label: t('Current Balance'),
+      label: t('Wallet balance'),
       value: formatQuota(props.user?.quota ?? 0),
-      description: t('Remaining quota'),
+      description: t('Wallet quota only; subscription charges are separate'),
       icon: WalletCards,
       tone: 'success',
     },
     {
-      label: t('Total Usage'),
+      label: t('Total charges'),
       value: formatQuota(props.user?.used_quota ?? 0),
-      description: t('Total consumed quota'),
+      description: t('Includes subscription and wallet charges'),
       icon: BarChart3,
       tone: 'info',
     },
     {
       label: t('API Requests'),
-      value: (props.user?.request_count ?? 0).toLocaleString(),
+      value: formatNumber(props.user?.request_count ?? 0),
       description: t('Total requests made'),
       icon: Activity,
       tone: 'chart-4',
     },
+    {
+      label: t('Subscription usage (this period)'),
+      value: periodValue,
+      description: periodDescription,
+      icon: CalendarClock,
+      tone: 'chart-5',
+    },
   ]
 
   return (
-    <div className='grid grid-cols-3 divide-x rounded-lg border'>
+    <div className='grid grid-cols-2 divide-x rounded-lg border sm:grid-cols-4'>
       {stats.map((item) => (
         <div key={item.label} className='min-w-0 px-2.5 py-2.5 sm:px-5 sm:py-4'>
           <div className='flex items-center gap-1.5 sm:gap-2.5'>

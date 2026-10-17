@@ -927,10 +927,12 @@ export const ModelPricingEditorPanel = forwardRef<
                 <PricingCurrencySelector siteCurrency={siteCurrency} />
 
                 <Field>
-                  <FieldLabel>{t('Funding-source multipliers')}</FieldLabel>
+                  <FieldLabel>
+                    {t('Funding-source deduction multipliers')}
+                  </FieldLabel>
                   <FieldDescription>
                     {t(
-                      'Applies to HTTP/SSE text token expression pricing. Blank uses 1×; channel usage keeps list price.'
+                      'Applies to eligible HTTP/SSE text-token expression requests only; blank means 1×. Below 1× discounts, above 1× surcharges. Channel usage keeps list price.'
                     )}
                   </FieldDescription>
                   <div className='grid gap-3 sm:grid-cols-2'>
@@ -945,8 +947,8 @@ export const ModelPricingEditorPanel = forwardRef<
                           <FormItem>
                             <FormLabel>
                               {name === 'subscriptionMultiplier'
-                                ? t('Subscription multiplier')
-                                : t('Wallet multiplier')}
+                                ? t('Subscription deduction multiplier')
+                                : t('Recharge deduction multiplier')}
                             </FormLabel>
                             <FormControl>
                               <Input

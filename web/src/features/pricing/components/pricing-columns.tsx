@@ -31,6 +31,7 @@ import { getLobeIcon } from '@/lib/lobe-icon'
 import { parseTags } from '../lib/filters'
 import type { PricingModel } from '../types'
 import { CachedPriceCell } from './cached-price-cell'
+import { FundingMultiplierBadge } from './funding-multiplier-badge'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPriceCell, type ModelPriceCellOptions } from './model-price-cell'
 
@@ -75,7 +76,10 @@ export function usePricingColumns(
       accessorKey: 'quota_type',
       header: t('Type'),
       cell: ({ row }) => (
-        <ModelBillingModeBadge model={row.original} className='-ml-1.5' />
+        <div className='flex flex-wrap items-center gap-1'>
+          <ModelBillingModeBadge model={row.original} className='-ml-1.5' />
+          <FundingMultiplierBadge model={row.original} />
+        </div>
       ),
       size: 110,
       enableSorting: false,

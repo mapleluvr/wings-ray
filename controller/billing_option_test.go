@@ -492,6 +492,102 @@ func TestFundingMultiplierDatabaseMatrix(t *testing.T) {
 				assert.Equal(t, "p * 8", actual.Expression)
 				assert.Equal(t, 1.5, actual.SubscriptionMultiplier)
 				assert.Equal(t, float64(2), actual.WalletMultiplier)
+				assert.True(t, actual.SubscriptionMultiplierSet)
+				assert.True(t, actual.WalletMultiplierSet)
+			})
+			t.Run("catalog publishes multipliers only when configured", func(t *testing.T) {
+				// The catalog is a model-level policy view: a source appears only
+				// when the model has an explicit entry, while the request path keeps
+				// treating an absent entry as 1x.
+				cases := []struct {
+					suffix                            string
+					subscription, wallet              float64
+					audio, hasSubscription, hasWallet bool
+				}{
+					{suffix: "both", subscription: 1.5, wallet: 0.9, hasSubscription: true, hasWallet: true},
+					{suffix: "subscription-only", subscription: 0.5, hasSubscription: true},
+					{suffix: "wallet-only", wallet: 2, hasWallet: true},
+					{suffix: "unconfigured"},
+					// Explicit 1x is the only value that both equals the request-path
+					// default and is accepted by option validation, so it is the sole
+					// witness that presence is stored, not inferred from the value.
+					{suffix: "explicit-ones", subscription: 1, wallet: 1, hasSubscription: true, hasWallet: true},
+					{suffix: "audio", subscription: 0.5, wallet: 0.9, audio: true},
+				}
+				modes, expressions := map[string]string{}, map[string]string{}
+				subscriptions, wallets := map[string]float64{}, map[string]float64{}
+				for _, tc := range cases {
+					name := fmt.Sprintf("catalog-%s-%s", tc.suffix, dialect.kind)
+					channel := model.Channel{Type: 1, Name: name, Key: "catalog-upstream-key", Models: name, Group: "default", Status: common.ChannelStatusEnabled}
+					require.NoError(t, db.Create(&channel).Error)
+					require.NoError(t, db.Create(&model.Ability{ChannelId: channel.Id, Model: name, Group: "default", Enabled: true}).Error)
+					modes[name] = "tiered_expr"
+					expressions[name] = "p * 2"
+					if tc.subscription > 0 {
+						subscriptions[name] = tc.subscription
+					}
+					if tc.wallet > 0 {
+						wallets[name] = tc.wallet
+					}
+					if tc.audio {
+						snapshot, snapshotErr := model.GetModelPricingSnapshot([]string{name})
+						require.NoError(t, snapshotErr)
+						require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: name, ExpectedVersion: snapshot.Entries[0].Version, Pricing: model.PricingValues{"AudioRatio": float64(1)}}}))
+					}
+				}
+				modeJSON, marshalErr := common.Marshal(modes)
+				require.NoError(t, marshalErr)
+				expressionJSON, marshalErr := common.Marshal(expressions)
+				require.NoError(t, marshalErr)
+				subscriptionJSON, marshalErr := common.Marshal(subscriptions)
+				require.NoError(t, marshalErr)
+				walletJSON, marshalErr := common.Marshal(wallets)
+				require.NoError(t, marshalErr)
+				require.NoError(t, model.UpdateModelPricingOptions(map[string]string{
+					"billing_setting.billing_mode":            string(modeJSON),
+					"billing_setting.billing_expr":            string(expressionJSON),
+					"billing_setting.subscription_multiplier": string(subscriptionJSON),
+					"billing_setting.wallet_multiplier":       string(walletJSON),
+				}))
+				model.InvalidatePricingCache()
+				catalog := map[string]model.Pricing{}
+				for _, row := range model.GetPricing() {
+					catalog[row.ModelName] = row
+				}
+				for _, tc := range cases {
+					name := fmt.Sprintf("catalog-%s-%s", tc.suffix, dialect.kind)
+					row, found := catalog[name]
+					require.True(t, found, "%s must appear in the catalog", name)
+					encoded, encodeErr := common.Marshal(row)
+					require.NoError(t, encodeErr)
+					payload := map[string]any{}
+					require.NoError(t, common.Unmarshal(encoded, &payload))
+					if tc.hasSubscription {
+						assert.Equal(t, tc.subscription, payload["subscription_multiplier"], "%s must publish its configured subscription multiplier", name)
+					} else {
+						assert.NotContains(t, payload, "subscription_multiplier", "%s must omit an unconfigured subscription multiplier", name)
+					}
+					if tc.hasWallet {
+						assert.Equal(t, tc.wallet, payload["wallet_multiplier"], "%s must publish its configured wallet multiplier", name)
+					} else {
+						assert.NotContains(t, payload, "wallet_multiplier", "%s must omit an unconfigured wallet multiplier", name)
+					}
+				}
+				for _, tc := range cases {
+					name := fmt.Sprintf("catalog-%s-%s", tc.suffix, dialect.kind)
+					config := billing_setting.GetModelBillingConfig(name)
+					// The request-path config stores what was saved; it does not
+					// re-evaluate the catalog's audio guard. Only an absent entry
+					// reports as unset with the 1x default.
+					assert.Equal(t, tc.subscription > 0, config.SubscriptionMultiplierSet, "%s must report its stored subscription entry", name)
+					assert.Equal(t, tc.wallet > 0, config.WalletMultiplierSet, "%s must report its stored wallet entry", name)
+					if tc.subscription == 0 {
+						assert.Equal(t, float64(1), config.SubscriptionMultiplier, "%s request path must keep the 1x default", name)
+					}
+					if tc.wallet == 0 {
+						assert.Equal(t, float64(1), config.WalletMultiplier, "%s request path must keep the 1x default", name)
+					}
+				}
 			})
 			t.Run("legacy rewards survive a Redis outage", func(t *testing.T) {
 				previousClient, previousRedis := common.RDB, common.RedisEnabled
@@ -751,14 +847,14 @@ func TestFundingMultiplierDatabaseMatrix(t *testing.T) {
 				}
 			}
 			for i, tc := range []struct {
-				name, source, expression, preference, settlementFailure                           string
-				subscription, wallet                                                              float64
-				prompt                                                                            int
-				usage                                                                             dto.Usage
-				wantHeld, wantDebit, wantList, walletBalance, subBalance, wantDue                 int
-				changeConfig, reject, retryGroup, trusted, httpRelay, stream, periodChanged       bool
-				compact, audio, audioResponse, refund, resetBeforeRetry, deleteToken, toolFailure bool
-				geminiAudio                                                                       string
+				name, source, expression, preference, settlementFailure                                      string
+				subscription, wallet                                                                         float64
+				prompt                                                                                       int
+				usage                                                                                        dto.Usage
+				wantHeld, wantDebit, wantList, walletBalance, subBalance, wantDue                            int
+				changeConfig, reject, retryGroup, trusted, httpRelay, stream, periodChanged                  bool
+				compact, audio, audioBody, audioResponse, refund, resetBeforeRetry, deleteToken, toolFailure bool
+				geminiAudio                                                                                  string
 			}{
 				{name: "Gemini inline audio keeps original charge", source: "wallet", expression: `tier("base", p * 2 + c * 2)`, subscription: 1, wallet: 0.5, prompt: 1000, usage: dto.Usage{PromptTokens: 1000, TotalTokens: 1000}, wantHeld: 1000, wantDebit: 1000, wantList: 1000, geminiAudio: "inline"},
 				{name: "Gemini file audio keeps original charge", source: "wallet", expression: `tier("base", p * 2 + c * 2)`, subscription: 1, wallet: 0.5, prompt: 1000, usage: dto.Usage{PromptTokens: 1000, TotalTokens: 1000}, wantHeld: 1000, wantDebit: 1000, wantList: 1000, geminiAudio: "file"},
@@ -769,6 +865,7 @@ func TestFundingMultiplierDatabaseMatrix(t *testing.T) {
 				{name: "Compact in-flight configuration stays frozen", source: "wallet", expression: `tier("base", p * 2)`, subscription: 1, wallet: 0.5, usage: dto.Usage{PromptTokens: 1000, TotalTokens: 1000}, wantDebit: 500, wantList: 1000, httpRelay: true, compact: true, changeConfig: true},
 				{name: "audio Chat keeps original admission and charge", source: "wallet", expression: `tier("base", p * 2 + c * 2)`, subscription: 1, wallet: 1.5, prompt: 1000, usage: dto.Usage{PromptTokens: 1000, TotalTokens: 1000, PromptTokensDetails: dto.InputTokenDetails{AudioTokens: 1000}}, walletBalance: 1200, wantHeld: 1000, wantDebit: 1000, wantList: 1000, audio: true},
 				{name: "audio Responses keeps original admission and charge", source: "wallet", expression: `tier("base", p * 2 + c * 2)`, subscription: 1, wallet: 1.5, prompt: 1000, usage: dto.Usage{PromptTokens: 1000, TotalTokens: 1000, PromptTokensDetails: dto.InputTokenDetails{AudioTokens: 1000}}, walletBalance: 1200, wantHeld: 1000, wantDebit: 1000, wantList: 1000, audio: true, audioResponse: true},
+				{name: "audio request body keeps list price on a text model", source: "wallet", expression: `tier("base", p * 2 + c * 2)`, subscription: 1, wallet: 1.5, prompt: 1000, usage: dto.Usage{PromptTokens: 1000, TotalTokens: 1000}, wantHeld: 1000, wantDebit: 1000, wantList: 1000, audioBody: true},
 				{name: "retry refund cannot credit a new period", source: "subscription", expression: `tier("base", p * 2)`, subscription: 0.5, wallet: 1, prompt: 100, wantHeld: 100, retryGroup: true, periodChanged: true, refund: true},
 				{name: "reset rejects supplemental reservation", source: "subscription", expression: `tier("base", p * 2)`, subscription: 0.5, wallet: 1, prompt: 100, periodChanged: true, resetBeforeRetry: true, refund: true},
 				{name: "wallet commit failure retains only paid reservation", source: "wallet", expression: `tier("base", p * 2 + c * 6)`, subscription: 1, wallet: 0.5, prompt: 100, usage: dto.Usage{PromptTokens: 100, CompletionTokens: 1000, TotalTokens: 1100}, wantHeld: 50, wantDebit: 50, wantList: 3100, wantDue: 1550, settlementFailure: "wallet"},
@@ -971,6 +1068,11 @@ func TestFundingMultiplierDatabaseMatrix(t *testing.T) {
 								info.Request = &dto.OpenAIResponsesRequest{Model: name, Input: []byte(`"test"`)}
 							}
 						}
+						if tc.audioBody {
+							// The model keeps a text expression and a configured policy, but
+							// the request itself carries audio, so no funding policy is frozen.
+							info.Request = &dto.GeneralOpenAIRequest{Model: name, Modalities: []byte(`["text","audio"]`)}
+						}
 						if tc.geminiAudio != "" {
 							info.RelayMode = relayconstant.RelayModeGemini
 							request := &dto.GeminiChatRequest{}
@@ -1067,7 +1169,7 @@ func TestFundingMultiplierDatabaseMatrix(t *testing.T) {
 						if tc.toolFailure {
 							ctx.Set("claude_web_search_requests", 1)
 						}
-						if tc.audio || tc.geminiAudio != "" {
+						if tc.audio || tc.audioBody || tc.geminiAudio != "" {
 							assert.Nil(t, info.FundingPricing, "audio must not acquire a text funding policy")
 						}
 						if tc.audio {
@@ -1143,7 +1245,7 @@ func TestFundingMultiplierDatabaseMatrix(t *testing.T) {
 					assert.Equal(t, tc.usage.CompletionTokens, logs[0].CompletionTokens)
 					var other map[string]any
 					require.NoError(t, common.UnmarshalJsonStr(logs[0].Other, &other))
-					if tc.audio || tc.geminiAudio != "" {
+					if tc.audio || tc.audioBody || tc.geminiAudio != "" {
 						assert.NotContains(t, other, "funding_pricing")
 						return
 					}

@@ -389,8 +389,15 @@ func updatePricing() {
 		if pricing.BillingMode == billing_setting.BillingModeTieredExpr && billing_setting.IsTextTokenExpression(pricing.BillingExpr) &&
 			!strings.HasPrefix(model, "gpt-4o-audio") && !ratio_setting.ContainsAudioRatio(model) && !ratio_setting.ContainsAudioCompletionRatio(model) {
 			cfg := billing_setting.GetModelBillingConfig(model)
-			pricing.SubscriptionMultiplier = common.GetPointer(cfg.SubscriptionMultiplier)
-			pricing.WalletMultiplier = common.GetPointer(cfg.WalletMultiplier)
+			// Publish a source only when the model has an explicit entry: an
+			// absent field means "not configured", while the request path keeps
+			// treating it as 1x.
+			if cfg.SubscriptionMultiplierSet {
+				pricing.SubscriptionMultiplier = common.GetPointer(cfg.SubscriptionMultiplier)
+			}
+			if cfg.WalletMultiplierSet {
+				pricing.WalletMultiplier = common.GetPointer(cfg.WalletMultiplier)
+			}
 		}
 		usageModel := model
 		plugin, ok := pluginGeneration.GetByModel(model)
